@@ -1,0 +1,28 @@
+{
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "node scripts/ensure-pwa-icons.mjs",
+    "build": "next build",
+    "start": "next start",
+    "pwa:icons": "node scripts/ensure-pwa-icons.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1026.0",
+    "firebase": "^12.11.0",
+    "next": "^16.2.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^6.0.2"
+  }
+}

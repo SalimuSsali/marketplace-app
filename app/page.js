@@ -1,0 +1,424 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { collection, getDocs } from "firebase/firestore";
+import { BottomTabBar } from "../components/BottomTabBar";
+import { SearchHighlightText } from "../components/SearchHighlightText";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { deleteExpiredFromList } from "../lib/expiry";
+import {
+  SEARCH_DEBOUNCE_MS,
+  buildGlobalSearchIndex,
+  formatItemPrice,
+  rankItemSearch,
+} from "../lib/globalSearch";
+import { getItemTitle } from "../lib/itemFields";
+import { getItemPrimaryImageUrl } from "../lib/itemImages";
+import { db } from "../lib/firebase";
+import { itemLocationMatchesNeedle } from "../lib/locationNearby";
+
+/** Header “your area” label (no GPS); used for optional nearby alert matching */
+const USER_AREA = "Your area";
+
+export default function HomePage() {
+  const router = useRouter();
+  const redirectTimerRef = useRef(null);
+  const latestItemsRef = useRef(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [userLocation, setUserLocation] = useState("");
+  const [alertDismissed, setAlertDismissed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        if (!db) {
+          if (!cancelled) setItems([]);
+          return;
+        }
+        const snapshot = await getDocs(collection(db, "items"));
+        let data = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        data = await deleteExpiredFromList(db, "items", data);
+        data = data.filter((item) => item.sold !== true);
+        if (!cancelled) {
+          setItems(data);
+        }
+      } catch {
+        if (!cancelled) setItems([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const searchIndex = useMemo(() => buildGlobalSearchIndex(items), [items]);
+  const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+  const rankedSearch = useMemo(
+    () =>
+      rankItemSearch(items, debouncedSearch.trim(), searchIndex, { limit: 20 }),
+    [items, debouncedSearch, searchIndex],
+  );
+
+  useEffect(() => {
+    if (redirectTimerRef.current) {
+      clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+
+    const q = debouncedSearch.trim();
+    if (!q || loading || rankedSearch.results.length > 0) {
+      return;
+    }
+
+    const delayMs = 1200;
+    redirectTimerRef.current = setTimeout(() => {
+      redirectTimerRef.current = null;
+      router.push(`/requests?title=${encodeURIComponent(q)}`);
+    }, delayMs);
+
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+    };
+  }, [debouncedSearch, rankedSearch.results.length, loading, router]);
+
+  const hasSearch = searchTerm.trim() !== "";
+  const debouncedHasSearch = debouncedSearch.trim() !== "";
+  const searchPending = hasSearch && searchTerm.trim() !== debouncedSearch.trim();
+
+  const showFloatingAlert = useMemo(() => {
+    if (alertDismissed || loading) return false;
+    const needle = (searchTerm.trim() || USER_AREA).toLowerCase();
+    const hasAnyLocation = items.some(
+      (i) => String(i.location ?? "").trim() !== "",
+    );
+    if (!hasAnyLocation) {
+      return items.length > 0;
+    }
+    return items.some((i) =>
+      itemLocationMatchesNeedle(i.location, needle),
+    );
+  }, [alertDismissed, items, loading, searchTerm]);
+
+  function scrollToLatestItems() {
+    latestItemsRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  function handleFindNearby() {
+    const raw = userLocation.trim();
+    if (!raw) return;
+    router.push(`/items?near=${encodeURIComponent(raw)}`);
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-200">
+      <div className="flex h-[740px] w-[360px] flex-col rounded-3xl bg-black p-[6px] shadow-xl">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white">
+          <div
+            className="flex shrink-0 justify-center bg-white pt-2"
+            aria-hidden
+          >
+            <div className="h-5 w-24 rounded-full bg-black" />
+          </div>
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="relative flex h-full min-h-0 w-full flex-1 flex-col bg-white shadow-sm">
+              <header className="shrink-0">
+                <div className="border-b border-gray-200 bg-emerald-600 px-4 pb-4 pt-4 text-white">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xl font-black tracking-tight">
+                      NEXT
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href="/safety"
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base no-underline"
+                        aria-label="Security and safety tips"
+                      >
+                        {"\u26A0\uFE0F"}
+                      </Link>
+                      <Link
+                        href="/notifications"
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base no-underline"
+                        aria-label="Notifications"
+                      >
+                        🔔
+                      </Link>
+                      <Link
+                        href="/profile"
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base no-underline"
+                        aria-label="Profile"
+                      >
+                        👤
+                      </Link>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Find anything in</p>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold"
+                      aria-label="Location"
+                    >
+                      <span aria-hidden>📍</span>
+                      <span>{USER_AREA}</span>
+                    </button>
+                  </div>
+
+                  <label className="sr-only" htmlFor="home-search">
+                    Search items
+                  </label>
+                  <div className="relative mt-3">
+                    <span
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base text-emerald-700/70"
+                      aria-hidden
+                    >
+                      🔎
+                    </span>
+                    <input
+                      id="home-search"
+                      type="search"
+                      name="search"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="I am looking for..."
+                      autoComplete="off"
+                      className="w-full rounded-xl bg-white py-3 pl-10 pr-3 text-sm text-neutral-900 shadow-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-white/50"
+                    />
+                    {hasSearch ? (
+                      <div
+                        className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[min(70vh,22rem)] overflow-auto rounded-xl border border-emerald-100 bg-white py-1 shadow-lg"
+                        aria-busy={searchPending}
+                      >
+                        {searchPending ? (
+                          <p className="px-3 py-2 text-xs text-neutral-500">
+                            Searching…
+                          </p>
+                        ) : null}
+                        {!searchPending &&
+                        debouncedHasSearch &&
+                        rankedSearch.wasChanged ? (
+                          <p className="border-b border-emerald-50 px-3 py-2 text-xs text-neutral-600">
+                            <span className="font-semibold text-emerald-800">
+                              Did you mean:
+                            </span>{" "}
+                            <span className="italic text-neutral-800">
+                              {rankedSearch.correctedQuery}
+                            </span>
+                          </p>
+                        ) : null}
+                        {!searchPending &&
+                        debouncedHasSearch &&
+                        rankedSearch.results.length === 0 ? (
+                          <div className="px-3 py-4 text-center">
+                            <p className="text-sm font-semibold text-neutral-800">
+                              No results found
+                            </p>
+                            <p className="mt-1 text-xs text-neutral-600">
+                              Try different keywords or check spelling.
+                            </p>
+                          </div>
+                        ) : null}
+                        {!searchPending &&
+                        debouncedHasSearch &&
+                        rankedSearch.results.length > 0 ? (
+                          <ul className="m-0 list-none p-0" role="listbox">
+                            {rankedSearch.results.map(({ item }) => {
+                              const url = getItemPrimaryImageUrl(item);
+                              const terms = rankedSearch.highlightTerms;
+                              return (
+                                <li key={item.id} role="option">
+                                  <Link
+                                    href={`/items/${item.id}`}
+                                    className="flex gap-2 px-3 py-2 text-sm no-underline transition hover:bg-emerald-50"
+                                  >
+                                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-neutral-100">
+                                      {url ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={url}
+                                          alt=""
+                                          className="h-full w-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-full items-center justify-center text-[10px] text-neutral-400">
+                                          —
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-medium leading-tight text-neutral-900">
+                                        <SearchHighlightText
+                                          text={getItemTitle(item)}
+                                          terms={terms}
+                                        />
+                                      </div>
+                                      <div className="mt-0.5 text-xs font-semibold text-emerald-800">
+                                        {formatItemPrice(item)}
+                                      </div>
+                                      {item.location ? (
+                                        <span className="mt-0.5 line-clamp-1 block text-xs text-neutral-500">
+                                          {item.location}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </header>
+
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                <main className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-4 pb-6 pt-4">
+                  <h2
+                    id="latest-items"
+                    ref={latestItemsRef}
+                    className="scroll-mt-4 text-base font-bold text-neutral-900"
+                  >
+                    Latest Items
+                  </h2>
+
+                  <div className="mt-3">
+                    {loading ? (
+                      <p className="py-6 text-center text-sm text-neutral-500">
+                        Loading…
+                      </p>
+                    ) : items.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-neutral-500">
+                        No items yet
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        {items.map((item) => {
+                          const url = getItemPrimaryImageUrl(item);
+
+                          return (
+                            <Link
+                              key={item.id}
+                              href={`/items/${item.id}`}
+                              className="block rounded-xl border border-gray-200 bg-white p-3 shadow-sm no-underline text-inherit"
+                            >
+                              <div className="mb-3 h-[150px] w-full overflow-hidden rounded-lg bg-gray-100">
+                                {url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="h-[150px] w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-[150px] w-full items-center justify-center text-xs text-neutral-500">
+                                    No Image
+                                  </div>
+                                )}
+                              </div>
+                              <p className="line-clamp-2 text-sm font-bold leading-tight text-neutral-900">
+                                {getItemTitle(item)}
+                              </p>
+                              <p className="mt-1 text-xs text-neutral-600">
+                                {item.price}
+                              </p>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </main>
+
+                {showFloatingAlert ? (
+                  <div
+                    className="pointer-events-none absolute bottom-[5.5rem] left-1/2 z-30 w-[90%] max-w-[324px] -translate-x-1/2"
+                    role="status"
+                  >
+                    <div className="home-float-alert-animate pointer-events-auto relative rounded-xl bg-green-600 text-white shadow-lg">
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-lg leading-none text-white hover:bg-white/15"
+                        aria-label="Dismiss"
+                        onClick={() => setAlertDismissed(true)}
+                      >
+                        {"\u2716"}
+                      </button>
+                      <div className="p-3 pr-10">
+                        <div
+                          className="cursor-pointer"
+                          onClick={scrollToLatestItems}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              scrollToLatestItems();
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Scroll to Latest Items"
+                        >
+                          <div className="flex gap-2 pr-1">
+                            <span className="shrink-0 text-lg" aria-hidden>
+                              {"\u{1F4CD}"}
+                            </span>
+                            <div>
+                              <p className="text-sm font-semibold leading-snug">
+                                New items posted near your area
+                              </p>
+                              <p className="mt-1 text-xs leading-snug text-white/90">
+                                Check latest listings close to you
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-col gap-2">
+                          <input
+                            value={userLocation}
+                            onChange={(e) => setUserLocation(e.target.value)}
+                            placeholder="Enter your location"
+                            className="w-full rounded-lg px-3 py-2 text-sm text-neutral-900 shadow-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-white/40"
+                          />
+                          <button
+                            type="button"
+                            className="w-full rounded-lg bg-white px-3 py-2 text-sm font-semibold text-green-700 shadow-sm hover:bg-white/95"
+                            onClick={handleFindNearby}
+                          >
+                            Find Nearby
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <BottomTabBar variant="embedded" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

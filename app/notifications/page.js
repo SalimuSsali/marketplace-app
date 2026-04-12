@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useFirebaseAuthSession } from "../../hooks/useFirebaseAuthSession";
+import { devError } from "../../lib/devLog";
 import { fetchNotificationsForEmail } from "../../lib/notifications";
 
 function formatTime(d) {
@@ -25,9 +26,15 @@ export default function NotificationsPage() {
       return;
     }
     setLoading(true);
-    const rows = await fetchNotificationsForEmail(userEmail, 10);
-    setItems(rows);
-    setLoading(false);
+    try {
+      const rows = await fetchNotificationsForEmail(userEmail, 10);
+      setItems(rows);
+    } catch (err) {
+      devError("NotificationsPage load", err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
   }, [userEmail]);
 
   useEffect(() => {

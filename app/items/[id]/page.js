@@ -15,12 +15,14 @@ import {
 } from "../../../lib/expiry";
 import { getItemImageUrls } from "../../../lib/itemImages";
 import { getItemTagList, getItemTitle } from "../../../lib/itemFields";
+import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
+import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 import { notifyPostExpiringSoonOncePerSession } from "../../../lib/notifications";
 
 export default function ItemDetailPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = getFirestoreDocIdFromParams(params, "id");
   const router = useRouter();
 
   const [item, setItem] = useState(null);
@@ -57,6 +59,9 @@ export default function ItemDetailPage() {
           notifyPostExpiringSoonOncePerSession(data.id, data.email);
         }
         setItem(data);
+      } catch (err) {
+        devError("ItemDetailPage fetch", err);
+        setItem(null);
       } finally {
         setLoading(false);
       }

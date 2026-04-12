@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { logServerError } from "../../../lib/devLog";
 import {
   getR2Config,
   isR2ApiEndpointUrl,
@@ -106,7 +107,7 @@ export async function POST(req) {
     }
     return Response.json({ url, key });
   } catch (e) {
-    console.error("R2 upload failed:", e);
+    logServerError("r2-upload", e);
     return Response.json(
       { error: { message: "Upload to storage failed. Check server logs." } },
       { status: 502 }

@@ -1,5 +1,6 @@
 import "./globals.css";
-import { GlobalBottomTabBar } from "../components/BottomTabBar";
+import { AppErrorBoundary } from "../components/AppErrorBoundary";
+import { GlobalBottomTabBarMount } from "../components/GlobalBottomTabBarMount";
 import { MainColumnPad } from "../components/MainColumnPad";
 import { PwaInstallBanner } from "../components/PwaInstallBanner";
 import { ServiceWorkerRegister } from "../components/ServiceWorkerRegister";
@@ -30,10 +31,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="min-h-dvh bg-gray-100 text-neutral-900 antialiased">
-        <ServiceWorkerRegister />
-        <PwaInstallBanner />
-        <MainColumnPad>{children}</MainColumnPad>
-        <GlobalBottomTabBar />
+        <AppErrorBoundary>
+          <ServiceWorkerRegister />
+          <PwaInstallBanner />
+          <MainColumnPad>{children}</MainColumnPad>
+          <GlobalBottomTabBarMount />
+        </AppErrorBoundary>
       </body>
     </html>
   );

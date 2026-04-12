@@ -7,6 +7,7 @@ node_modules/
 # Next.js / Turbopack build output (custom distDir names included)
 .next/
 .next-*/
+.next-stale-*/
 
 # Logs
 npm-debug.log*

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "prebuild": "node scripts/ensure-pwa-icons.mjs",
     "build": "next build",
+    "build:fresh": "node scripts/ensure-pwa-icons.mjs && node scripts/clean-next-all.mjs && next build",
     "start": "next start",
     "pwa:icons": "node scripts/ensure-pwa-icons.mjs"
   },

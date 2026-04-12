@@ -6,12 +6,14 @@ import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
 import { digitsOnly } from "../../../lib/digitsOnly";
+import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
+import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 import { notifyRequestResponded } from "../../../lib/notifications";
 
 export default function RequestDetailPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = getFirestoreDocIdFromParams(params, "id");
   const router = useRouter();
 
   const [request, setRequest] = useState(null);
@@ -40,6 +42,9 @@ export default function RequestDetailPage() {
         }
 
         setRequest({ id: snap.id, ...snap.data() });
+      } catch (err) {
+        devError("RequestDetailPage fetch", err);
+        setRequest(null);
       } finally {
         setLoading(false);
       }

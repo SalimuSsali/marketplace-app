@@ -6,12 +6,14 @@ import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
 import { digitsOnly } from "../../../lib/digitsOnly";
+import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
+import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 import { getItemImageUrls } from "../../../lib/itemImages";
 
 export default function ServiceDetailPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = getFirestoreDocIdFromParams(params, "id");
   const router = useRouter();
 
   const [service, setService] = useState(null);
@@ -35,6 +37,9 @@ export default function ServiceDetailPage() {
         }
 
         setService({ id: snap.id, ...snap.data() });
+      } catch (err) {
+        devError("ServiceDetailPage fetch", err);
+        setService(null);
       } finally {
         setLoading(false);
       }

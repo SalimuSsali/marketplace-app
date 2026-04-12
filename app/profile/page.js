@@ -14,7 +14,6 @@ import {
   signOut,
 } from "firebase/auth";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
-import { getBrowserHostname } from "../../lib/firebaseAuthorizedDomainsHint";
 import { auth } from "../../lib/firebase";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import {
@@ -40,7 +39,7 @@ export default function ProfilePage() {
   const [showSigninPassword, setShowSigninPassword] = useState(false);
 
   useEffect(() => {
-    setPageHost(getBrowserHostname());
+    setPageHost(window.location.hostname || "");
   }, []);
 
   useEffect(() => {

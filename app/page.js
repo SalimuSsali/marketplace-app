@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, getDocs } from "firebase/firestore";
-import { BottomTabBar } from "../components/BottomTabBar";
+import { EmbeddedBottomTabBarMount } from "../components/EmbeddedBottomTabBarMount";
 import { SearchHighlightText } from "../components/SearchHighlightText";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { deleteExpiredFromList } from "../lib/expiry";
@@ -16,6 +16,7 @@ import {
 } from "../lib/globalSearch";
 import { getItemTitle } from "../lib/itemFields";
 import { getItemPrimaryImageUrl } from "../lib/itemImages";
+import { devError } from "../lib/devLog";
 import { db } from "../lib/firebase";
 import { itemLocationMatchesNeedle } from "../lib/locationNearby";
 
@@ -51,7 +52,8 @@ export default function HomePage() {
         if (!cancelled) {
           setItems(data);
         }
-      } catch {
+      } catch (err) {
+        devError("HomePage load items", err);
         if (!cancelled) setItems([]);
       } finally {
         if (!cancelled) setLoading(false);
@@ -159,14 +161,14 @@ export default function HomePage() {
                         className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base no-underline"
                         aria-label="Notifications"
                       >
-                        🔔
+                        <span aria-hidden>{"\u{1F514}"}</span>
                       </Link>
                       <Link
                         href="/profile"
                         className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base no-underline"
                         aria-label="Profile"
                       >
-                        👤
+                        <span aria-hidden>{"\u{1F464}"}</span>
                       </Link>
                     </div>
                   </div>
@@ -178,7 +180,7 @@ export default function HomePage() {
                       className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold"
                       aria-label="Location"
                     >
-                      <span aria-hidden>📍</span>
+                      <span aria-hidden>{"\u{1F4CD}"}</span>
                       <span>{USER_AREA}</span>
                     </button>
                   </div>
@@ -191,7 +193,7 @@ export default function HomePage() {
                       className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base text-emerald-700/70"
                       aria-hidden
                     >
-                      🔎
+                      {"\u{1F50D}"}
                     </span>
                     <input
                       id="home-search"
@@ -414,7 +416,7 @@ export default function HomePage() {
                 ) : null}
               </div>
 
-              <BottomTabBar variant="embedded" />
+              <EmbeddedBottomTabBarMount />
             </div>
           </div>
         </div>

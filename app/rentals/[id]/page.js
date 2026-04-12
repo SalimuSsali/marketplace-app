@@ -7,14 +7,16 @@ import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
 import { digitsOnly } from "../../../lib/digitsOnly";
+import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
+import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 
 /** Same collection as legacy “property” listings. */
 const RENTALS_COLLECTION = "properties";
 
 export default function RentalDetailPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = getFirestoreDocIdFromParams(params, "id");
   const router = useRouter();
 
   const [rental, setRental] = useState(null);
@@ -39,6 +41,9 @@ export default function RentalDetailPage() {
         }
 
         setRental({ id: snap.id, ...snap.data() });
+      } catch (err) {
+        devError("RentalDetailPage fetch", err);
+        setRental(null);
       } finally {
         setLoading(false);
       }

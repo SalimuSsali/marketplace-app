@@ -24,6 +24,7 @@ import {
   newItemExpiresAt,
   newShopExpiresAt,
 } from "../../../lib/expiry";
+import { devError } from "../../../lib/devLog";
 import { descriptionWordCount } from "../../../lib/descriptionWords";
 import { formatSubmitError } from "../../../lib/formatSubmitError";
 import {
@@ -43,6 +44,7 @@ import {
   getItemPrimaryImageUrl,
 } from "../../../lib/itemImages";
 import { db } from "../../../lib/firebase";
+import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 import { validateSellerEmailForPost } from "../../../lib/sellerIdentity";
 import {
   notifyPostCreated,
@@ -51,6 +53,7 @@ import {
 } from "../../../lib/notifications";
 
 async function fetchShopItems(shopDocId) {
+  if (!db || !shopDocId) return [];
   const itemsQuery = query(
     collection(db, "items"),
     where("shopId", "==", shopDocId)
@@ -61,7 +64,7 @@ async function fetchShopItems(shopDocId) {
 
 export default function ShopDetailPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = getFirestoreDocIdFromParams(params, "id");
   const router = useRouter();
 
   const [shop, setShop] = useState(null);
@@ -158,7 +161,8 @@ export default function ShopDetailPage() {
           }
         }
         if (!cancelled) setShopItems(items);
-      } catch {
+      } catch (err) {
+        devError("ShopDetailPage load", err);
         if (!cancelled) {
           setShop(null);
           setShopItems([]);

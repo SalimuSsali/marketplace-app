@@ -1,16 +1,19 @@
 /**
- * Ensures raster PWA icons exist under `public/`.
- * If PNGs are missing, generates them on Windows via System.Drawing (no extra npm deps).
- * Other platforms: prints copy instructions (manifest still lists `icon.svg` as a fallback).
+ * Ensures raster PWA icons exist under `public/` (required by manifest + layout metadata).
+ * Uses pngjs on all platforms so Vercel/Linux builds succeed without PowerShell.
  */
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PNG } from "pngjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pub = path.join(root, "public");
+
+/** Brand emerald-600 #0d9488 */
+const R = 13;
+const G = 148;
+const B = 136;
 
 const required = [
   "icon-192.png",
@@ -23,39 +26,29 @@ function missing() {
   return required.filter((f) => !fs.existsSync(path.join(pub, f)));
 }
 
-function generateWindows() {
-  const script = `
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
-$pub = ${JSON.stringify(pub)}
-if (-not (Test-Path -LiteralPath $pub)) { New-Item -ItemType Directory -Path $pub | Out-Null }
-foreach ($s in @(192,512)) {
-  $bmp = New-Object System.Drawing.Bitmap($s,$s)
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.Clear([System.Drawing.Color]::FromArgb(13,148,136))
-  $bmp.Save((Join-Path $pub "icon-$s.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-  $g.Dispose()
-  $bmp.Dispose()
-}
-Copy-Item (Join-Path $pub 'icon-192.png') (Join-Path $pub 'favicon.png') -Force
-Copy-Item (Join-Path $pub 'icon-192.png') (Join-Path $pub 'apple-touch-icon.png') -Force
-`.trim();
-
-  const tmp = path.join(os.tmpdir(), `pwa-icons-${process.pid}.ps1`);
-  fs.writeFileSync(tmp, script, "utf8");
-  try {
-    execFileSync(
-      "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp],
-      { stdio: "inherit" },
-    );
-  } finally {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      /* ignore */
+function writeSolidPng(filepath, size) {
+  const png = new PNG({ width: size, height: size });
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (size * y + x) << 2;
+      png.data[idx] = R;
+      png.data[idx + 1] = G;
+      png.data[idx + 2] = B;
+      png.data[idx + 3] = 255;
     }
   }
+  fs.mkdirSync(path.dirname(filepath), { recursive: true });
+  fs.writeFileSync(filepath, PNG.sync.write(png));
+}
+
+function generateAll() {
+  writeSolidPng(path.join(pub, "icon-192.png"), 192);
+  writeSolidPng(path.join(pub, "icon-512.png"), 512);
+  fs.copyFileSync(path.join(pub, "icon-192.png"), path.join(pub, "favicon.png"));
+  fs.copyFileSync(
+    path.join(pub, "icon-192.png"),
+    path.join(pub, "apple-touch-icon.png"),
+  );
 }
 
 const m = missing();
@@ -63,19 +56,14 @@ if (m.length === 0) {
   process.exit(0);
 }
 
-console.warn(`[pwa] Missing icon files: ${m.join(", ")}`);
+console.warn(`[pwa] Missing icon files: ${m.join(", ")} — generating via pngjs…`);
 
-if (process.platform === "win32") {
-  try {
-    generateWindows();
-    console.warn("[pwa] Generated PNG icons under public/.");
-    process.exit(0);
-  } catch (e) {
-    console.warn("[pwa] Auto-generate failed:", e?.message || e);
-  }
+try {
+  generateAll();
+  console.warn("[pwa] Wrote PNG icons under public/.");
+} catch (e) {
+  console.error("[pwa] Failed to generate icons:", e?.message || e);
+  process.exit(1);
 }
 
-console.warn(
-  "[pwa] Add public/icon-192.png and public/icon-512.png (PNG). Copy to favicon.png and apple-touch-icon.png, or use public/icon.svg where clients allow SVG.",
-);
 process.exit(0);

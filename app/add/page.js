@@ -8,14 +8,25 @@ import { descriptionWordCount } from "../../lib/descriptionWords";
 import { parseTagsInput } from "../../lib/itemFields";
 import { formatSubmitError } from "../../lib/formatSubmitError";
 import { db } from "../../lib/firebase";
-import { newItemExpiresAt, newShopExpiresAt } from "../../lib/expiry";
+import { newShopExpiresAt } from "../../lib/expiry";
+import { newItemLifecycleFields } from "../../lib/itemLifecycle";
 import {
   planItemImageFileBatch,
   uploadItemImageBatch,
 } from "../../lib/itemImageUpload";
 import { notifyPostCreated } from "../../lib/notifications";
 import { imageFieldsForFirestore, MAX_ITEM_IMAGES } from "../../lib/itemImages";
-import { validateSellerEmailForPost } from "../../lib/sellerIdentity";
+import {
+  validateGoogleUserForItemPost,
+  validateSellerEmailForPost,
+} from "../../lib/sellerIdentity";
+import {
+  buildStructuredLocationForFirestore,
+  DEFAULT_ITEM_LOCATION,
+} from "../../lib/itemLocation";
+import { parseOptionalWhatsapp } from "../../lib/whatsappItem";
+import { CategoryGrid } from "../../components/CategoryGrid";
+import { applyCategoryToTags, DEFAULT_CATEGORY_ID } from "../../lib/categories";
 
 function AddPageInner() {
   const router = useRouter();
@@ -29,9 +40,14 @@ function AddPageInner() {
   const [itemDescription, setItemDescription] = useState("");
   const [itemTagsInput, setItemTagsInput] = useState("");
   const [itemImageUrls, setItemImageUrls] = useState([]);
-  const [itemLocation, setItemLocation] = useState("");
+  const [itemCategoryId, setItemCategoryId] = useState(DEFAULT_CATEGORY_ID);
+  const [locCountry, setLocCountry] = useState(DEFAULT_ITEM_LOCATION.country);
+  const [locDistrict, setLocDistrict] = useState(DEFAULT_ITEM_LOCATION.district);
+  const [locTown, setLocTown] = useState(DEFAULT_ITEM_LOCATION.town);
+  const [locVillage, setLocVillage] = useState(DEFAULT_ITEM_LOCATION.village);
   const [sellerName, setSellerName] = useState("");
   const [itemContact, setItemContact] = useState("");
+  const [itemWhatsapp, setItemWhatsapp] = useState("");
   const [uploading, setUploading] = useState(false);
 
   // Post Request
@@ -73,12 +89,22 @@ function AddPageInner() {
   async function onSubmit(e) {
     e.preventDefault();
 
-    const emailCheck = validateSellerEmailForPost(authUser);
-    if (!emailCheck.ok) {
-      alert(emailCheck.message);
-      return;
+    let postEmail = "";
+    if (mode === "item") {
+      const googleCheck = validateGoogleUserForItemPost(authUser);
+      if (!googleCheck.ok) {
+        alert(googleCheck.message);
+        return;
+      }
+      postEmail = googleCheck.email;
+    } else {
+      const emailCheck = validateSellerEmailForPost(authUser);
+      if (!emailCheck.ok) {
+        alert(emailCheck.message);
+        return;
+      }
+      postEmail = emailCheck.email;
     }
-    const postEmail = emailCheck.email;
     if (!db) {
       alert(
         "Database is not configured. Add Firebase keys to .env.local and restart the dev server.",
@@ -94,8 +120,14 @@ function AddPageInner() {
       if (mode === "item") {
         const n = price === "" ? null : Number(price);
         const { imageUrl, imageUrls } = imageFieldsForFirestore(itemImageUrls);
-        const tags = parseTagsInput(itemTagsInput);
+        const tags = applyCategoryToTags(parseTagsInput(itemTagsInput), itemCategoryId);
         const title = itemTitle.trim();
+        const waParsed = parseOptionalWhatsapp(itemWhatsapp);
+        if (!waParsed.ok) {
+          alert(waParsed.error);
+          return;
+        }
+        const sellerUid = authUser.uid;
         const itemData = {
           title,
           name: title,
@@ -104,12 +136,20 @@ function AddPageInner() {
           tags,
           imageUrl,
           imageUrls,
-          location: itemLocation.trim(),
+          ...buildStructuredLocationForFirestore({
+            country: locCountry,
+            district: locDistrict,
+            town: locTown,
+            village: locVillage,
+          }),
           sellerName: sellerName.trim(),
           email: postEmail,
           contact: itemContact.trim(),
-          createdAt: new Date(),
-          expiresAt: newItemExpiresAt(),
+          ...(waParsed.digits
+            ? { whatsapp: waParsed.digits, contactPhone: waParsed.digits }
+            : {}),
+          userId: sellerUid,
+          ...newItemLifecycleFields(),
         };
         await addDoc(collection(db, "items"), itemData);
         await notifyPostCreated(postEmail);
@@ -148,6 +188,7 @@ function AddPageInner() {
           description: shopDescription.trim(),
           imageUrl,
           imageUrls,
+          userId: authUser?.uid ?? null,
           createdAt: new Date(),
           expiresAt: newShopExpiresAt(),
         });
@@ -386,15 +427,61 @@ function AddPageInner() {
                 ))}
               </ul>
             ) : null}
-            <label className="app-label">
-              Location
-              <input
-                value={itemLocation}
-                onChange={(e) => setItemLocation(e.target.value)}
-                placeholder="Area"
-                className="app-input"
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-3">
+              <CategoryGrid
+                selectedId={itemCategoryId}
+                onSelect={setItemCategoryId}
+                columns={2}
+                size="md"
+                label="Category"
+                helpText="Optional — if you skip, it stays in Food & All Items."
               />
-            </label>
+            </div>
+
+            <fieldset className="rounded-xl border border-gray-200 bg-neutral-50/80 p-3">
+              <legend className="px-1 text-sm font-semibold text-neutral-800">
+                Location
+              </legend>
+              <p className="mb-2 text-xs text-neutral-500">
+                Defaults: Uganda, Bushenyi, Ishaka — edit if needed.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="app-label">
+                  Country
+                  <input
+                    value={locCountry}
+                    onChange={(e) => setLocCountry(e.target.value)}
+                    className="app-input"
+                  />
+                </label>
+                <label className="app-label">
+                  District
+                  <input
+                    value={locDistrict}
+                    onChange={(e) => setLocDistrict(e.target.value)}
+                    className="app-input"
+                  />
+                </label>
+                <label className="app-label">
+                  Town
+                  <input
+                    value={locTown}
+                    onChange={(e) => setLocTown(e.target.value)}
+                    className="app-input"
+                  />
+                </label>
+                <label className="app-label">
+                  Village
+                  <input
+                    value={locVillage}
+                    onChange={(e) => setLocVillage(e.target.value)}
+                    placeholder="Optional"
+                    className="app-input"
+                  />
+                </label>
+              </div>
+            </fieldset>
             <label className="app-label">
               Seller Name
               <input
@@ -423,6 +510,20 @@ function AddPageInner() {
                 onChange={(e) => setItemContact(e.target.value)}
                 className="app-input"
               />
+            </label>
+            <label className="app-label">
+              WhatsApp Number (optional)
+              <input
+                value={itemWhatsapp}
+                onChange={(e) => setItemWhatsapp(e.target.value)}
+                inputMode="tel"
+                placeholder="+256 7… (international format)"
+                autoComplete="tel"
+                className="app-input"
+              />
+              <span className="text-xs text-neutral-500">
+                Digits only (you may type + and spaces); saved without + for the WhatsApp link.
+              </span>
             </label>
           </>
         )}

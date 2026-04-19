@@ -2,24 +2,28 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
-import ContactSellerSection from "../../../components/ContactSellerSection";
+import { deleteDoc, doc, getDoc } from "firebase/firestore";
+import ItemSellerChat from "../../../components/ItemSellerChat";
 import ItemReviewsSection from "../../../components/ItemReviewsSection";
 import { ItemExpiryWarning } from "../../../components/ExpiryWarning";
+import { ItemExpiryCountdown } from "../../../components/ItemExpiryCountdown";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
-import { digitsOnly } from "../../../lib/digitsOnly";
 import {
-  isExpired,
-  isExpiringSoon,
-  newItemExpiresAt,
-} from "../../../lib/expiry";
+  getItemStoredWhatsappDigits,
+  getItemWhatsappHref,
+} from "../../../lib/whatsappItem";
+import { isExpired, isExpiringSoon } from "../../../lib/expiry";
+import {
+  getItemSellerUserId,
+  nextItemExpiresAfterRenewClient,
+  renewItem,
+} from "../../../lib/itemLifecycle";
 import { getItemImageUrls } from "../../../lib/itemImages";
 import { getItemTagList, getItemTitle } from "../../../lib/itemFields";
+import { getItemLocationSearchText } from "../../../lib/itemLocation";
 import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
 import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
-import { notifyPostExpiringSoonOncePerSession } from "../../../lib/notifications";
-
 export default function ItemDetailPage() {
   const params = useParams();
   const id = getFirestoreDocIdFromParams(params, "id");
@@ -51,12 +55,8 @@ export default function ItemDetailPage() {
         const data = { id: snap.id, ...snap.data() };
         const now = new Date();
         if (isExpired(data.expiresAt, now)) {
-          await deleteDoc(doc(db, "items", id));
           setItem(null);
           return;
-        }
-        if (isExpiringSoon(data.expiresAt, now) && data.email) {
-          notifyPostExpiringSoonOncePerSession(data.id, data.email);
         }
         setItem(data);
       } catch (err) {
@@ -78,12 +78,14 @@ export default function ItemDetailPage() {
   }, [id, item?.id, imageUrls.join("|")]);
 
   async function handleRenew() {
-    if (!db || !id) return;
+    if (!db || !id || !item) return;
     setRenewing(true);
     try {
-      const next = newItemExpiresAt();
-      await updateDoc(doc(db, "items", id), { expiresAt: next });
-      setItem((prev) => (prev ? { ...prev, expiresAt: next } : prev));
+      await renewItem(db, id);
+      const next = nextItemExpiresAfterRenewClient();
+      setItem((prev) =>
+        prev ? { ...prev, expiresAt: next, status: "active" } : prev,
+      );
     } catch (err) {
       alert("Could not renew post.");
     } finally {
@@ -93,11 +95,19 @@ export default function ItemDetailPage() {
 
   async function handleDelete() {
     if (!db || !id) return;
-    const u = String(currentUserEmail ?? "").trim().toLowerCase();
-    const listing = String(item?.email ?? "").trim().toLowerCase();
-    if (u && listing && listing !== u) {
-      alert("You can only delete your own listing.");
-      return;
+    const sellerId = getItemSellerUserId(item);
+    if (sellerId) {
+      if (authUser?.uid !== sellerId) {
+        alert("You can only delete your own listing.");
+        return;
+      }
+    } else {
+      const u = String(currentUserEmail ?? "").trim().toLowerCase();
+      const listing = String(item?.email ?? "").trim().toLowerCase();
+      if (u && listing && listing !== u) {
+        alert("You can only delete your own listing.");
+        return;
+      }
     }
     if (!confirm("Are you sure you want to delete this?")) return;
     setDeleting(true);
@@ -127,10 +137,8 @@ export default function ItemDetailPage() {
     );
   }
 
-  const contactForWa = digitsOnly(item.contact);
-  const whatsappHref = contactForWa
-    ? `https://wa.me/${contactForWa}`
-    : null;
+  const whatsappHref = getItemWhatsappHref(item);
+  const whatsappFieldDisplay = getItemStoredWhatsappDigits(item);
 
   const showExpiryWarning = isExpiringSoon(item.expiresAt);
   const tagList = getItemTagList(item);
@@ -138,6 +146,10 @@ export default function ItemDetailPage() {
   return (
     <main className="app-shell">
       <h1 className="app-title mb-4">{getItemTitle(item)}</h1>
+
+      <div className="mb-3 rounded-lg border border-neutral-200 bg-white px-3 py-2 shadow-sm">
+        <ItemExpiryCountdown expiresAt={item.expiresAt} />
+      </div>
 
       {showExpiryWarning ? (
         <div className="mb-4 rounded-xl ring-2 ring-amber-400/90">
@@ -218,7 +230,7 @@ export default function ItemDetailPage() {
         </p>
         <p>
           <strong className="font-semibold text-neutral-900">Location:</strong>{" "}
-          {item.location}
+          {getItemLocationSearchText(item) || "—"}
         </p>
         <p>
           <strong className="font-semibold text-neutral-900">Seller Name:</strong>{" "}
@@ -228,6 +240,14 @@ export default function ItemDetailPage() {
           <strong className="font-semibold text-neutral-900">Contact:</strong>{" "}
           {item.contact}
         </p>
+        {whatsappFieldDisplay ? (
+          <p>
+            <strong className="font-semibold text-neutral-900">
+              WhatsApp Number:
+            </strong>{" "}
+            <span className="font-mono tabular-nums">{whatsappFieldDisplay}</span>
+          </p>
+        ) : null}
         <p>
           <strong className="font-semibold text-neutral-900">Email:</strong>{" "}
           {item.email}
@@ -236,21 +256,22 @@ export default function ItemDetailPage() {
 
       <ItemReviewsSection itemId={id} />
 
-      <ContactSellerSection />
+      <ItemSellerChat itemId={id} sellerUserId={getItemSellerUserId(item)} />
 
-      <div className="mt-2">
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {whatsappHref ? (
           <a
             href={whatsappHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="app-btn-primary"
+            className="app-btn-primary inline-flex items-center justify-center"
           >
-            Contact Seller
+            Chat on WhatsApp
           </a>
         ) : (
-          <p className="app-hint">
-            Add a contact number to message on WhatsApp.
+          <p className="app-hint text-sm">
+            Add a WhatsApp number when posting (optional) to open WhatsApp from this
+            listing.
           </p>
         )}
       </div>

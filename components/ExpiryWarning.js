@@ -1,10 +1,12 @@
 "use client";
 
+import { ITEM_EXPIRING_PUSH_MESSAGE } from "../lib/notifications";
+
 export function ItemExpiryWarning({ onRenew, busy }) {
   return (
     <div className="rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2 shadow-sm">
       <p className="text-center text-xs font-semibold text-amber-900">
-        Your post is about to expire
+        {ITEM_EXPIRING_PUSH_MESSAGE}
       </p>
       <button
         type="button"
@@ -12,7 +14,7 @@ export function ItemExpiryWarning({ onRenew, busy }) {
         disabled={busy}
         className="mt-2 w-full rounded-lg bg-green-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-green-700 disabled:opacity-60"
       >
-        {busy ? "Renewing…" : "Renew Post"}
+        {busy ? "Renewing…" : "Renew"}
       </button>
     </div>
   );
@@ -30,7 +32,7 @@ export function ShopExpiryWarning({ onRenew, busy }) {
         disabled={busy}
         className="mt-2 w-full rounded-lg bg-green-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-green-700 disabled:opacity-60"
       >
-        {busy ? "Renewing…" : "Renew Shop"}
+        {busy ? "Renewing…" : "Renew"}
       </button>
     </div>
   );

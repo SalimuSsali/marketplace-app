@@ -1,13 +1,15 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, getDocs } from "firebase/firestore";
 import { EmbeddedBottomTabBarMount } from "../components/EmbeddedBottomTabBarMount";
+import { ItemExpiryCountdown } from "../components/ItemExpiryCountdown";
 import { SearchHighlightText } from "../components/SearchHighlightText";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
-import { deleteExpiredFromList } from "../lib/expiry";
+import { filterActiveItems } from "../lib/itemLifecycle";
 import {
   SEARCH_DEBOUNCE_MS,
   buildGlobalSearchIndex,
@@ -15,23 +17,57 @@ import {
   rankItemSearch,
 } from "../lib/globalSearch";
 import { getItemTitle } from "../lib/itemFields";
-import { getItemPrimaryImageUrl } from "../lib/itemImages";
+import { getItemImageUrls, getItemPrimaryImageUrl } from "../lib/itemImages";
 import { devError } from "../lib/devLog";
 import { db } from "../lib/firebase";
+import { getItemLocationSearchText } from "../lib/itemLocation";
 import { itemLocationMatchesNeedle } from "../lib/locationNearby";
+import { DEFAULT_CATEGORY_ID, itemMatchesCategory, normalizeCategoryId } from "../lib/categories";
+import { useSearchParams } from "next/navigation";
 
 /** Header “your area” label (no GPS); used for optional nearby alert matching */
 const USER_AREA = "Your area";
 
-export default function HomePage() {
+function AppBrandMark() {
+  return (
+    <div className="flex items-center gap-2">
+      <Image
+        src="/app-icon.png"
+        alt=""
+        width={32}
+        height={32}
+        className="h-8 w-8 rounded-lg shadow-sm"
+        priority
+      />
+      <span className="text-xl font-black tracking-tight">Next</span>
+    </div>
+  );
+}
+
+function HomePageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const redirectTimerRef = useRef(null);
   const latestItemsRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(
+    DEFAULT_CATEGORY_ID,
+  );
   const [userLocation, setUserLocation] = useState("");
   const [alertDismissed, setAlertDismissed] = useState(false);
+
+  // Prevent hydration mismatches on the phone-mockup homepage.
+  // This page is highly interactive and can be affected by extensions altering the DOM.
+  // We render a stable shell on the server + first client paint, then mount the real UI.
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    const cat = normalizeCategoryId(searchParams.get("cat"));
+    setSelectedCategoryId(cat);
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +83,7 @@ export default function HomePage() {
           id: docSnap.id,
           ...docSnap.data(),
         }));
-        data = await deleteExpiredFromList(db, "items", data);
+        data = filterActiveItems(data);
         data = data.filter((item) => item.sold !== true);
         if (!cancelled) {
           setItems(data);
@@ -66,12 +102,20 @@ export default function HomePage() {
     };
   }, []);
 
-  const searchIndex = useMemo(() => buildGlobalSearchIndex(items), [items]);
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+  const debouncedTrim = debouncedSearch.trim();
+  const categoryItems = useMemo(
+    () => items.filter((item) => itemMatchesCategory(item, selectedCategoryId)),
+    [items, selectedCategoryId],
+  );
+  const searchIndex = useMemo(
+    () => buildGlobalSearchIndex(categoryItems),
+    [categoryItems],
+  );
   const rankedSearch = useMemo(
     () =>
-      rankItemSearch(items, debouncedSearch.trim(), searchIndex, { limit: 20 }),
-    [items, debouncedSearch, searchIndex],
+      rankItemSearch(categoryItems, debouncedTrim, searchIndex, { limit: 20 }),
+    [categoryItems, debouncedTrim, searchIndex],
   );
 
   useEffect(() => {
@@ -102,18 +146,31 @@ export default function HomePage() {
   const hasSearch = searchTerm.trim() !== "";
   const debouncedHasSearch = debouncedSearch.trim() !== "";
   const searchPending = hasSearch && searchTerm.trim() !== debouncedSearch.trim();
+  const displayItems = useMemo(
+    () => (debouncedTrim ? rankedSearch.results.map((r) => r.item) : categoryItems),
+    [debouncedTrim, rankedSearch, categoryItems],
+  );
+
+  const anyFiltersActive =
+    debouncedTrim !== "" || selectedCategoryId !== DEFAULT_CATEGORY_ID;
+
+  function clearFilters() {
+    setSearchTerm("");
+    setSelectedCategoryId(DEFAULT_CATEGORY_ID);
+    router.replace("/");
+  }
 
   const showFloatingAlert = useMemo(() => {
     if (alertDismissed || loading) return false;
     const needle = (searchTerm.trim() || USER_AREA).toLowerCase();
     const hasAnyLocation = items.some(
-      (i) => String(i.location ?? "").trim() !== "",
+      (i) => getItemLocationSearchText(i).trim() !== "",
     );
     if (!hasAnyLocation) {
       return items.length > 0;
     }
     return items.some((i) =>
-      itemLocationMatchesNeedle(i.location, needle),
+      itemLocationMatchesNeedle(getItemLocationSearchText(i), needle),
     );
   }, [alertDismissed, items, loading, searchTerm]);
 
@@ -128,6 +185,29 @@ export default function HomePage() {
     const raw = userLocation.trim();
     if (!raw) return;
     router.push(`/items?near=${encodeURIComponent(raw)}`);
+  }
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-200">
+        <div className="flex h-[740px] w-[360px] flex-col rounded-3xl bg-black p-[6px] shadow-xl">
+          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="border-b border-gray-200 bg-emerald-600 px-4 pb-4 pt-4 text-white">
+                <AppBrandMark />
+                <div className="mt-3 h-11 w-full rounded-xl bg-white/20" aria-hidden />
+              </div>
+              <main className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-4 pb-6 pt-4">
+                <p className="py-6 text-center text-sm text-neutral-500">
+                  Loading…
+                </p>
+              </main>
+              <EmbeddedBottomTabBarMount />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -145,9 +225,7 @@ export default function HomePage() {
               <header className="shrink-0">
                 <div className="border-b border-gray-200 bg-emerald-600 px-4 pb-4 pt-4 text-white">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xl font-black tracking-tight">
-                      NEXT
-                    </div>
+                    <AppBrandMark />
                     <div className="flex items-center gap-2">
                       <Link
                         href="/safety"
@@ -246,6 +324,7 @@ export default function HomePage() {
                             {rankedSearch.results.map(({ item }) => {
                               const url = getItemPrimaryImageUrl(item);
                               const terms = rankedSearch.highlightTerms;
+                              const locLine = getItemLocationSearchText(item);
                               return (
                                 <li key={item.id} role="option">
                                   <Link
@@ -276,9 +355,9 @@ export default function HomePage() {
                                       <div className="mt-0.5 text-xs font-semibold text-emerald-800">
                                         {formatItemPrice(item)}
                                       </div>
-                                      {item.location ? (
+                                      {locLine ? (
                                         <span className="mt-0.5 line-clamp-1 block text-xs text-neutral-500">
-                                          {item.location}
+                                          {locLine}
                                         </span>
                                       ) : null}
                                     </div>
@@ -299,10 +378,30 @@ export default function HomePage() {
                   <h2
                     id="latest-items"
                     ref={latestItemsRef}
-                    className="scroll-mt-4 text-base font-bold text-neutral-900"
+                    className="mt-5 scroll-mt-4 text-base font-bold text-neutral-900"
                   >
-                    Latest Items
+                    {selectedCategoryId !== DEFAULT_CATEGORY_ID
+                      ? "Items"
+                      : "Latest Items"}
                   </h2>
+
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <Link
+                      href="/categories"
+                      className="text-xs font-semibold text-emerald-800 underline decoration-emerald-600/40 underline-offset-2"
+                    >
+                      Browse categories
+                    </Link>
+                    {anyFiltersActive ? (
+                      <button
+                        type="button"
+                        onClick={clearFilters}
+                        className="text-xs font-semibold text-neutral-700 underline decoration-neutral-300 underline-offset-2"
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
 
                   <div className="mt-3">
                     {loading ? (
@@ -313,43 +412,83 @@ export default function HomePage() {
                       <p className="py-6 text-center text-sm text-neutral-500">
                         No items yet
                       </p>
+                    ) : !searchPending && displayItems.length === 0 ? (
+                      <div className="py-6 text-center">
+                        <p className="text-sm font-semibold text-neutral-800">
+                          No items found
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-600">
+                          Try another category or different search words.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="mt-3 inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+                        >
+                          Clear Filters
+                        </button>
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-3">
-                        {items.map((item) => {
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        {displayItems.map((item) => {
                           const url = getItemPrimaryImageUrl(item);
+                          const imageCount = getItemImageUrls(item).length;
 
                           return (
                             <Link
                               key={item.id}
                               href={`/items/${item.id}`}
-                              className="block rounded-xl border border-gray-200 bg-white p-3 shadow-sm no-underline text-inherit"
+                              className="group block overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm no-underline text-inherit transition hover:shadow-md"
                             >
-                              <div className="mb-3 h-[150px] w-full overflow-hidden rounded-lg bg-gray-100">
+                              <div className="relative aspect-square w-full bg-gray-100">
                                 {url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
                                     src={url}
                                     alt=""
-                                    className="h-[150px] w-full object-cover"
+                                    loading="lazy"
+                                    className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-[1.01]"
                                   />
                                 ) : (
-                                  <div className="flex h-[150px] w-full items-center justify-center text-xs text-neutral-500">
+                                  <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-neutral-500">
                                     No Image
                                   </div>
                                 )}
+
+                                {/* soft gradient so overlay text never “collides” with the image */}
+                                <div
+                                  className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/70 to-transparent"
+                                  aria-hidden
+                                />
+
+                                {imageCount > 1 ? (
+                                  <div className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white">
+                                    +{imageCount - 1}
+                                  </div>
+                                ) : null}
+
+                                <div className="absolute inset-x-0 bottom-0 p-2">
+                                  <p className="line-clamp-2 text-xs font-bold leading-snug text-white">
+                                    {getItemTitle(item)}
+                                  </p>
+                                  <p className="mt-0.5 text-[11px] font-semibold text-white/95">
+                                    {formatItemPrice(item)}
+                                  </p>
+                                  <div className="mt-1">
+                                    <ItemExpiryCountdown
+                                      expiresAt={item.expiresAt}
+                                      className="text-[10px] text-white/95 drop-shadow-sm"
+                                    />
+                                  </div>
+                                </div>
                               </div>
-                              <p className="line-clamp-2 text-sm font-bold leading-tight text-neutral-900">
-                                {getItemTitle(item)}
-                              </p>
-                              <p className="mt-1 text-xs text-neutral-600">
-                                {item.price}
-                              </p>
                             </Link>
                           );
                         })}
                       </div>
                     )}
                   </div>
+
                 </main>
 
                 {showFloatingAlert ? (
@@ -422,5 +561,34 @@ export default function HomePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-gray-200">
+          <div className="flex h-[740px] w-[360px] flex-col rounded-3xl bg-black p-[6px] shadow-xl">
+            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="border-b border-gray-200 bg-emerald-600 px-4 pb-4 pt-4 text-white">
+                  <AppBrandMark />
+                  <div className="mt-3 h-11 w-full rounded-xl bg-white/20" aria-hidden />
+                </div>
+                <main className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-4 pb-6 pt-4">
+                  <p className="py-6 text-center text-sm text-neutral-500">
+                    Loading…
+                  </p>
+                </main>
+                <EmbeddedBottomTabBarMount />
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <HomePageInner />
+    </Suspense>
   );
 }

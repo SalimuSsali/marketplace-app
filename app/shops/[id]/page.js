@@ -17,13 +17,13 @@ import {
 import { ItemExpiryWarning, ShopExpiryWarning } from "../../../components/ExpiryWarning";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
 import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
+import { isExpired, isExpiringSoon, newShopExpiresAt } from "../../../lib/expiry";
 import {
-  deleteExpiredFromList,
-  isExpired,
-  isExpiringSoon,
-  newItemExpiresAt,
-  newShopExpiresAt,
-} from "../../../lib/expiry";
+  filterActiveItems,
+  newItemLifecycleFields,
+  nextItemExpiresAfterRenewClient,
+  renewItem,
+} from "../../../lib/itemLifecycle";
 import { devError } from "../../../lib/devLog";
 import { descriptionWordCount } from "../../../lib/descriptionWords";
 import { formatSubmitError } from "../../../lib/formatSubmitError";
@@ -45,10 +45,11 @@ import {
 } from "../../../lib/itemImages";
 import { db } from "../../../lib/firebase";
 import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
-import { validateSellerEmailForPost } from "../../../lib/sellerIdentity";
+import { defaultItemLocationForCreate } from "../../../lib/itemLocation";
+import { validateGoogleUserForItemPost } from "../../../lib/sellerIdentity";
+import { parseOptionalWhatsapp } from "../../../lib/whatsappItem";
 import {
   notifyPostCreated,
-  notifyPostExpiringSoonOncePerSession,
   notifyShopExpiringSoonOncePerSession,
 } from "../../../lib/notifications";
 
@@ -86,6 +87,7 @@ export default function ShopDetailPage() {
   const [itemImageUrls, setItemImageUrls] = useState([]);
   const [postImageUploading, setPostImageUploading] = useState(false);
   const [contact, setContact] = useState("");
+  const [postWhatsapp, setPostWhatsapp] = useState("");
 
   const [shopCoverUrls, setShopCoverUrls] = useState([]);
   const [shopCoverUploading, setShopCoverUploading] = useState(false);
@@ -154,12 +156,7 @@ export default function ShopDetailPage() {
         }
 
         let items = await fetchShopItems(id);
-        items = await deleteExpiredFromList(db, "items", items);
-        for (const row of items) {
-          if (isExpiringSoon(row.expiresAt, now) && row.email) {
-            notifyPostExpiringSoonOncePerSession(row.id, row.email);
-          }
-        }
+        items = filterActiveItems(items, now);
         if (!cancelled) setShopItems(items);
       } catch (err) {
         devError("ShopDetailPage load", err);
@@ -185,18 +182,23 @@ export default function ShopDetailPage() {
       alert("Please enter a title.");
       return;
     }
-    const emailCheck = validateSellerEmailForPost(authUser);
-    if (!emailCheck.ok) {
-      alert(emailCheck.message);
+    const googleCheck = validateGoogleUserForItemPost(authUser);
+    if (!googleCheck.ok) {
+      alert(googleCheck.message);
       return;
     }
-    const postEmail = emailCheck.email;
+    const postEmail = googleCheck.email;
     setPostSaving(true);
     try {
       const n = price === "" ? null : Number(price);
       const { imageUrl, imageUrls } = imageFieldsForFirestore(itemImageUrls);
       const tags = parseTagsInput(postTagsInput);
       const title = postTitle.trim();
+      const waParsed = parseOptionalWhatsapp(postWhatsapp);
+      if (!waParsed.ok) {
+        alert(waParsed.error);
+        return;
+      }
       await addDoc(collection(db, "items"), {
         title,
         name: title,
@@ -206,10 +208,14 @@ export default function ShopDetailPage() {
         imageUrl,
         imageUrls,
         contact: contact.trim(),
+        ...(waParsed.digits
+          ? { whatsapp: waParsed.digits, contactPhone: waParsed.digits }
+          : {}),
         email: postEmail,
         shopId: id,
-        createdAt: new Date(),
-        expiresAt: newItemExpiresAt(),
+        userId: authUser.uid,
+        ...defaultItemLocationForCreate(),
+        ...newItemLifecycleFields(),
       });
       await notifyPostCreated(postEmail);
       setPostTitle("");
@@ -218,6 +224,7 @@ export default function ShopDetailPage() {
       setPostTagsInput("");
       setItemImageUrls([]);
       setContact("");
+      setPostWhatsapp("");
       setShowPostForm(false);
       const items = await fetchShopItems(id);
       setShopItems(items);
@@ -337,14 +344,18 @@ export default function ShopDetailPage() {
     }
   }
 
-  async function handleRenewShopItem(itemId) {
-    if (!db) return;
-    setRenewingItemId(itemId);
+  async function handleRenewShopItem(item) {
+    if (!db || !item?.id) return;
+    setRenewingItemId(item.id);
     try {
-      const next = newItemExpiresAt();
-      await updateDoc(doc(db, "items", itemId), { expiresAt: next });
+      await renewItem(db, item.id);
+      const next = nextItemExpiresAfterRenewClient();
       setShopItems((prev) =>
-        prev.map((i) => (i.id === itemId ? { ...i, expiresAt: next } : i))
+        prev.map((i) =>
+          i.id === item.id
+            ? { ...i, expiresAt: next, status: "active" }
+            : i,
+        ),
       );
     } catch (err) {
       alert("Could not renew post.");
@@ -664,6 +675,20 @@ export default function ShopDetailPage() {
                 className="app-input"
               />
             </label>
+            <label className="app-label">
+              WhatsApp Number (optional)
+              <input
+                value={postWhatsapp}
+                onChange={(e) => setPostWhatsapp(e.target.value)}
+                inputMode="tel"
+                placeholder="+256 7… (international format)"
+                autoComplete="tel"
+                className="app-input"
+              />
+              <span className="text-xs text-neutral-500">
+                Digits only (+ and spaces allowed while typing).
+              </span>
+            </label>
             <button
               type="submit"
               disabled={postSaving}
@@ -735,7 +760,7 @@ export default function ShopDetailPage() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ItemExpiryWarning
-                        onRenew={() => handleRenewShopItem(item.id)}
+                        onRenew={() => handleRenewShopItem(item)}
                         busy={renewingItemId === item.id}
                       />
                     </div>

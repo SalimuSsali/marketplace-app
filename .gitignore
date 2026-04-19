@@ -25,3 +25,9 @@ Thumbs.db
 
 # Vercel CLI link metadata (optional)
 .vercel/
+
+# Generated FCM service worker (run `node scripts/gen-firebase-messaging-sw.mjs` locally / in CI)
+public/firebase-messaging-sw.js
+
+# TypeScript incremental build info
+tsconfig.tsbuildinfo

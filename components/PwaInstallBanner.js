@@ -65,8 +65,16 @@ export function PwaInstallBanner() {
       aria-label="Install app"
     >
       <div className="flex max-w-md flex-1 items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 py-2 shadow-lg">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/app-icon.png"
+          alt=""
+          width={40}
+          height={40}
+          className="h-10 w-10 shrink-0 rounded-lg object-cover shadow-sm"
+        />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-neutral-900">Install NEXT Marketplace</p>
+          <p className="text-xs font-semibold text-neutral-900">Install Next</p>
           <p className="text-[11px] text-neutral-600">Add to Home Screen for quick access.</p>
         </div>
         <button

@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { logServerError } from "../../../lib/devLog";
 import {
   getR2Config,
+  getR2EnvShapeError,
   isR2ApiEndpointUrl,
+  r2UploadErrorUserMessage,
   uploadImageToR2,
 } from "../../../lib/r2";
 
@@ -30,6 +32,11 @@ export async function POST(req) {
     return Response.json({ error: { message: WRONG_PUBLIC_URL_MSG } }, { status: 400 });
   }
 
+  const shapeError = getR2EnvShapeError();
+  if (shapeError) {
+    return Response.json({ error: { message: shapeError } }, { status: 503 });
+  }
+
   const config = getR2Config();
   if (!config) {
     return Response.json(
@@ -47,7 +54,19 @@ export async function POST(req) {
   let incoming;
   try {
     incoming = await req.formData();
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/1\s*mb|body.*limit|413|entity too large|payload too large/i.test(msg)) {
+      return Response.json(
+        {
+          error: {
+            message:
+              "Request body too large for the server. Try a smaller image (under ~1 MB) or configure a higher limit for your host.",
+          },
+        },
+        { status: 413 }
+      );
+    }
     return Response.json(
       { error: { message: "Invalid form data." } },
       { status: 400 }
@@ -109,7 +128,7 @@ export async function POST(req) {
   } catch (e) {
     logServerError("r2-upload", e);
     return Response.json(
-      { error: { message: "Upload to storage failed. Check server logs." } },
+      { error: { message: r2UploadErrorUserMessage(e) } },
       { status: 502 }
     );
   }

@@ -1,12 +1,28 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 /**
- * Vercel sets VERCEL=1 — keep default `.next` output on the platform.
- * For local Windows EPERM on `.next`, set NEXT_DIST_DIR or use temp dist (see repo docs).
+ * - Vercel: always `.next` (VERCEL=1).
+ * - Local: `.next` in the repo by default.
+ *   Note: Next 16 + Turbopack requires `distDir` to stay within the project root; output dirs that
+ *   navigate outside (e.g. via `..\..\Temp\...`) can cause Turbopack build failures.
+ *   Override with NEXT_DIST_DIR (must be inside the project) if needed.
  */
 function getDistDir(): string {
   const explicit = process.env.NEXT_DIST_DIR?.trim().replace(/[/\\]+$/, "");
-  if (explicit) return explicit;
+  if (explicit) {
+    // Allow either relative paths or absolute paths *inside* the project.
+    const projectRoot = process.cwd();
+    const abs = path.isAbsolute(explicit)
+      ? path.normalize(explicit)
+      : path.resolve(projectRoot, explicit);
+    const rel = path.relative(projectRoot, abs);
+
+    // Reject values that navigate outside the project; Turbopack doesn't allow it.
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return ".next";
+
+    return rel.replace(/\\/g, "/");
+  }
   if (process.env.VERCEL === "1") return ".next";
   return ".next";
 }
@@ -18,8 +34,6 @@ const nextConfig: NextConfig = {
 
   async redirects() {
     return [
-      { source: "/categories", destination: "/items", permanent: false },
-      { source: "/categories/:path*", destination: "/items", permanent: false },
       { source: "/property", destination: "/rentals", permanent: true },
       { source: "/property/:id", destination: "/rentals/:id", permanent: true },
     ];

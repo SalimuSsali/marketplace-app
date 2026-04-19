@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "target": "ES2017",
     "lib": [
@@ -12,6 +13,11 @@
     "strict": false,
     "noEmit": true,
     "incremental": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
     "module": "esnext",
     "esModuleInterop": true,
     "moduleResolution": "bundler",
@@ -31,26 +37,15 @@
     "**/*.mts",
     "**/*.ts",
     "**/*.tsx",
-    ".next-build/types/**/*.ts",
-    ".next-build/dev/types/**/*.ts",
-    ".next-dist/types/**/*.ts",
-    ".next-dist/dev/types/**/*.ts",
-    ".next-out/types/**/*.ts",
-    ".next-out/dev/types/**/*.ts",
-    ".next-buildsafe/types/**/*.ts",
-    ".next-buildsafe/dev/types/**/*.ts",
-    ".next-buildsafe2/types/**/*.ts",
-    ".next-buildsafe2/dev/types/**/*.ts",
-    ".next-buildsafe3/types/**/*.ts",
-    ".next-buildsafe3/dev/types/**/*.ts",
-    ".next-buildsafe4/types/**/*.ts",
-    ".next-buildsafe4/dev/types/**/*.ts",
-    ".next-buildsafe5/types/**/*.ts",
-    ".next-buildsafe5/dev/types/**/*.ts",
-    ".next-b/types/**/*.ts",
-    ".next-b/dev/types/**/*.ts"
+    ".next-win/types/**/*.ts",
+    ".next-win/dev/types/**/*.ts",
+    ".next-win2/types/**/*.ts",
+    ".next-win2/dev/types/**/*.ts",
+    ".next-win3/types/**/*.ts",
+    ".next-win3/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "android"
   ]
 }

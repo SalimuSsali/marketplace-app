@@ -24,9 +24,7 @@ export function BottomTabBar({ variant = "fixed" }) {
     pathname === "/requests" || pathname.startsWith("/requests/");
   const isRentals =
     pathname === "/rentals" || pathname.startsWith("/rentals/");
-  const isNotifications =
-    pathname === "/notifications" ||
-    pathname.startsWith("/notifications/");
+  const isCategories = pathname === "/categories";
 
   const navClass =
     variant === "embedded"
@@ -129,15 +127,15 @@ export function BottomTabBar({ variant = "fixed" }) {
         </Link>
 
         <Link
-          href="/notifications"
-          className={sideTab(isNotifications)}
-          aria-current={isNotifications ? "page" : undefined}
-          aria-label="Notifications"
+          href="/categories"
+          className={sideTab(isCategories)}
+          aria-current={isCategories ? "page" : undefined}
+          aria-label="Categories"
         >
           <span className="shrink-0 text-[1rem] leading-none" aria-hidden>
-            {"\u{1F514}"}
+            {"\u{1F5C2}\uFE0F"}
           </span>
-          <span className={labelClass}>Alerts</span>
+          <span className={labelClass}>Categories</span>
         </Link>
       </div>
     </nav>

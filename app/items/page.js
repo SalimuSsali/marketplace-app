@@ -7,41 +7,47 @@ import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
 import { ItemExpiryWarning } from "../../components/ExpiryWarning";
 import { SearchHighlightText } from "../../components/SearchHighlightText";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { ItemExpiryCountdown } from "../../components/ItemExpiryCountdown";
+import { isExpiringSoon } from "../../lib/expiry";
 import {
-  deleteExpiredFromList,
-  isExpiringSoon,
-  newItemExpiresAt,
-} from "../../lib/expiry";
+  filterActiveItems,
+  nextItemExpiresAfterRenewClient,
+  renewItem as renewItemInFirestore,
+} from "../../lib/itemLifecycle";
 import {
   SEARCH_DEBOUNCE_MS,
-  SEARCH_DEFAULT_LIMIT,
-  buildGlobalSearchIndex,
   formatItemPrice,
-  rankItemSearch,
 } from "../../lib/globalSearch";
 import { getItemTitle } from "../../lib/itemFields";
 import { getItemPrimaryImageUrl } from "../../lib/itemImages";
 import { db } from "../../lib/firebase";
+import { CategoryGrid } from "../../components/CategoryGrid";
+import {
+  DEFAULT_CATEGORY_ID,
+  getItemCategoryId,
+  normalizeCategoryId,
+} from "../../lib/categories";
+import { getItemLocationSearchText } from "../../lib/itemLocation";
 import {
   filterAndSortItemsByNearby,
   itemLocationMatchesNeedle,
   sortItemsByLocationMatch,
 } from "../../lib/locationNearby";
-import { notifyPostExpiringSoonOncePerSession } from "../../lib/notifications";
-
 function ItemsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+  // Independent filter states (category + search)
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [failedImagesById, setFailedImagesById] = useState({});
   const [renewingId, setRenewingId] = useState(null);
 
   useEffect(() => {
     const q = searchParams.get("q");
-    if (q) setSearchTerm(q);
+    if (q) setSearchQuery(q);
   }, [searchParams]);
 
   useEffect(() => {
@@ -57,12 +63,7 @@ function ItemsPageInner() {
           ...docSnap.data(),
         }));
         const now = new Date();
-        data = await deleteExpiredFromList(db, "items", data);
-        for (const item of data) {
-          if (isExpiringSoon(item.expiresAt, now) && item.email) {
-            notifyPostExpiringSoonOncePerSession(item.id, item.email);
-          }
-        }
+        data = filterActiveItems(data, now);
         setItems(data);
       } catch {
         setItems([]);
@@ -74,14 +75,16 @@ function ItemsPageInner() {
     fetchItems();
   }, []);
 
-  async function renewItem(itemId) {
-    if (!db) return;
-    setRenewingId(itemId);
+  async function onRenewItemClick(item) {
+    if (!db || !item?.id) return;
+    setRenewingId(item.id);
     try {
-      const next = newItemExpiresAt();
-      await updateDoc(doc(db, "items", itemId), { expiresAt: next });
+      await renewItemInFirestore(db, item.id);
+      const next = nextItemExpiresAfterRenewClient();
       setItems((prev) =>
-        prev.map((i) => (i.id === itemId ? { ...i, expiresAt: next } : i))
+        prev.map((i) =>
+          i.id === item.id ? { ...i, expiresAt: next, status: "active" } : i,
+        ),
       );
     } catch (err) {
       alert("Could not renew post.");
@@ -90,16 +93,11 @@ function ItemsPageInner() {
     }
   }
 
-  const searchIndex = useMemo(() => buildGlobalSearchIndex(items), [items]);
-  const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
-  const debouncedTrim = debouncedSearch.trim();
-  const rankedSearch = useMemo(
-    () =>
-      rankItemSearch(items, debouncedTrim, searchIndex, {
-        limit: SEARCH_DEFAULT_LIMIT,
-      }),
-    [items, debouncedTrim, searchIndex],
-  );
+  // Safety fallback
+  const safeItems = items || [];
+
+  const debouncedSearch = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
+  const debouncedTrim = debouncedSearch.trim().toLowerCase();
 
   const nearParam = useMemo(
     () => (searchParams.get("near") ?? "").trim(),
@@ -108,68 +106,69 @@ function ItemsPageInner() {
 
   /** Keep `?q=` when dropping `?near=` from the home “Find nearby” flow. */
   const hrefClearNear = useMemo(() => {
-    const t = searchTerm.trim();
+    const t = searchQuery.trim();
     return t ? `/items?q=${encodeURIComponent(t)}` : "/items";
-  }, [searchTerm]);
+  }, [searchQuery]);
 
-  const [displayItems, setDisplayItems] = useState(items);
-  useEffect(() => {
-    if (searchTerm.trim() !== debouncedSearch.trim()) return;
+  const normalizedCategory = useMemo(
+    () => normalizeCategoryId(selectedCategory),
+    [selectedCategory],
+  );
 
+  // 1) Category filter FIRST
+  const categoryFilteredItems = useMemo(() => {
+    return normalizedCategory === "all"
+      ? safeItems
+      : safeItems.filter((item) => getItemCategoryId(item) === normalizedCategory);
+  }, [safeItems, normalizedCategory]);
+
+  // 2) Search filter SECOND (within category results)
+  const finalItems = useMemo(() => {
+    if (!debouncedTrim) return categoryFilteredItems;
+    return categoryFilteredItems.filter((item) => {
+      const title = getItemTitle(item).toLowerCase();
+      const desc = String(item?.description ?? "").toLowerCase();
+      return title.includes(debouncedTrim) || desc.includes(debouncedTrim);
+    });
+  }, [categoryFilteredItems, debouncedTrim]);
+
+  // Optional: nearby filter applied after the two required filters
+  const displayItems = useMemo(() => {
+    if (!nearParam) return finalItems;
     if (debouncedTrim) {
-      let next = rankedSearch.results.map((r) => r.item);
-      if (nearParam) {
-        next = next.filter((item) =>
-          itemLocationMatchesNeedle(item.location, nearParam),
-        );
-        next = sortItemsByLocationMatch(next, nearParam);
-      }
-      setDisplayItems(next);
-      return;
+      const next = finalItems.filter((item) =>
+        itemLocationMatchesNeedle(getItemLocationSearchText(item), nearParam),
+      );
+      return sortItemsByLocationMatch(next, nearParam);
     }
+    return filterAndSortItemsByNearby(finalItems, nearParam);
+  }, [finalItems, nearParam, debouncedTrim]);
 
-    if (nearParam) {
-      setDisplayItems(filterAndSortItemsByNearby(items, nearParam));
-      return;
-    }
-
-    setDisplayItems(items);
-  }, [
-    items,
-    debouncedSearch,
-    debouncedTrim,
-    rankedSearch,
-    searchTerm,
-    nearParam,
-  ]);
-
-  const hasSearch = searchTerm.trim() !== "";
-  const searchPending = hasSearch && searchTerm.trim() !== debouncedTrim;
-  const suggestionRows = debouncedTrim
-    ? rankedSearch.results.slice(0, 5)
-    : [];
+  const hasSearch = searchQuery.trim() !== "";
+  const searchPending = hasSearch && searchQuery.trim() !== debouncedSearch.trim();
   const searchNoResults =
     !searchPending &&
-    debouncedTrim &&
-    rankedSearch.results.length === 0 &&
-    items.length > 0;
+    Boolean(debouncedTrim) &&
+    displayItems.length === 0 &&
+    categoryFilteredItems.length > 0;
 
   const nearOnlyNoResults =
     !searchPending &&
     Boolean(nearParam) &&
-    !debouncedTrim &&
-    items.length > 0 &&
+    !Boolean(debouncedTrim) &&
+    categoryFilteredItems.length > 0 &&
     displayItems.length === 0;
 
-  const nearRefineNoResults =
-    !searchPending &&
-    Boolean(nearParam) &&
-    Boolean(debouncedTrim) &&
-    rankedSearch.results.length > 0 &&
-    displayItems.length === 0;
+  const anyFiltersActive =
+    Boolean(debouncedTrim) || normalizedCategory !== DEFAULT_CATEGORY_ID;
+
+  function clearFilters() {
+    setSearchQuery("");
+    setSelectedCategory(DEFAULT_CATEGORY_ID);
+  }
 
   function openRequestFlow() {
-    const t = searchTerm.trim();
+    const t = searchQuery.trim();
     router.push(`/add?mode=request&title=${encodeURIComponent(t)}`);
   }
 
@@ -212,71 +211,35 @@ function ItemsPageInner() {
         <input
           id="items-search"
           type="search"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && searchNoResults) {
-              e.preventDefault();
-              openRequestFlow();
-            }
-          }}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search items…"
           autoComplete="off"
           className="app-search"
         />
-        {hasSearch ? (
-          <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-md">
-            {searchPending ? (
-              <p className="px-3 py-2 text-xs text-neutral-500">Searching…</p>
-            ) : null}
-            {!searchPending &&
-            debouncedTrim &&
-            rankedSearch.wasChanged ? (
-              <p className="border-b border-gray-100 px-3 py-2 text-xs text-neutral-600">
-                <span className="font-semibold">Did you mean:</span>{" "}
-                <span className="italic">{rankedSearch.correctedQuery}</span>
-              </p>
-            ) : null}
-            {!searchPending && debouncedTrim && suggestionRows.length > 0 ? (
-              <ul className="m-0 list-none p-0" role="listbox">
-                {suggestionRows.map(({ item }) => (
-                  <li key={item.id} role="option">
-                    <Link
-                      href={`/items/${item.id}`}
-                      className="flex gap-2 px-3 py-2.5 text-sm no-underline transition hover:bg-gray-50"
-                    >
-                      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-neutral-100">
-                        {getItemPrimaryImageUrl(item) ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={getItemPrimaryImageUrl(item)}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-[9px] text-neutral-400">
-                            —
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-neutral-900">
-                          <SearchHighlightText
-                            text={getItemTitle(item)}
-                            terms={rankedSearch.highlightTerms}
-                          />
-                        </div>
-                        <div className="text-xs font-semibold text-emerald-800">
-                          {formatItemPrice(item)}
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+        {anyFiltersActive ? (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="mt-2 text-xs font-semibold text-neutral-700 underline decoration-neutral-300 underline-offset-2"
+          >
+            Clear filters
+          </button>
         ) : null}
+        {searchPending ? (
+          <p className="mt-2 text-xs text-neutral-500">Searching…</p>
+        ) : null}
+      </div>
+
+      <div className="mt-5">
+        <CategoryGrid
+          selectedId={normalizedCategory}
+          onSelect={setSelectedCategory}
+          columns={2}
+          size="md"
+          label="Browse by category"
+          helpText="Category filters the list below. Search filters within the selected category."
+        />
       </div>
 
       {loading ? (
@@ -292,14 +255,38 @@ function ItemsPageInner() {
             Post Request
           </button>
         </div>
+      ) : !searchPending && items.length > 0 && displayItems.length === 0 ? (
+        <div className="mt-8 flex flex-col items-center gap-3 py-6 text-center">
+          <p className="text-sm font-semibold text-neutral-800">No items found</p>
+          <p className="max-w-sm text-xs text-neutral-600">
+            Try changing the category or search words.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="app-btn-primary max-w-[260px] text-sm"
+            >
+              Clear Filters
+            </button>
+            {searchNoResults ? (
+              <button
+                type="button"
+                onClick={openRequestFlow}
+                className="app-btn-secondary max-w-[260px] text-sm"
+              >
+                Post a request
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : searchNoResults ? (
         <div className="mt-8 flex flex-col items-center gap-3 py-6 text-center">
           <p className="text-sm font-semibold text-neutral-800">
             No results found
           </p>
           <p className="max-w-sm text-xs text-neutral-600">
-            Try different keywords. Search matches titles, tags, and descriptions
-            and tolerates small typos.
+            Try different keywords.
           </p>
           <button
             type="button"
@@ -308,24 +295,6 @@ function ItemsPageInner() {
           >
             Post a request
           </button>
-        </div>
-      ) : nearRefineNoResults ? (
-        <div className="mt-8 flex flex-col items-center gap-3 py-6 text-center">
-          <p className="text-sm font-semibold text-neutral-800">
-            No listings in this area for your search
-          </p>
-          <p className="max-w-sm text-xs text-neutral-600">
-            Your search matched items, but none list a location that matches{" "}
-            <span className="font-medium text-neutral-800">{nearParam}</span>.
-            Try another keyword or{" "}
-            <Link
-              href={hrefClearNear}
-              className="font-semibold text-emerald-800 underline"
-            >
-              clear location
-            </Link>
-            .
-          </p>
         </div>
       ) : nearOnlyNoResults ? (
         <div className="mt-8 flex flex-col items-center gap-3 py-6 text-center">
@@ -395,17 +364,16 @@ function ItemsPageInner() {
                     </div>
                     <div className="app-card-body">
                       <div className="app-card-title">
-                        <SearchHighlightText
-                          text={getItemTitle(item)}
-                          terms={
-                            debouncedTrim
-                              ? rankedSearch.highlightTerms
-                              : []
-                          }
-                        />
+                        {getItemTitle(item)}
                       </div>
                       <div className="app-card-meta">{formatItemPrice(item)}</div>
-                      <div className="app-card-meta">{item.location}</div>
+                      <div className="app-card-meta">
+                        {getItemLocationSearchText(item)}
+                      </div>
+                      <ItemExpiryCountdown
+                        expiresAt={item.expiresAt}
+                        className="mt-1 text-left"
+                      />
                     </div>
                   </div>
                 </Link>
@@ -415,7 +383,7 @@ function ItemsPageInner() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ItemExpiryWarning
-                      onRenew={() => renewItem(item.id)}
+                      onRenew={() => onRenewItemClick(item)}
                       busy={renewingId === item.id}
                     />
                   </div>

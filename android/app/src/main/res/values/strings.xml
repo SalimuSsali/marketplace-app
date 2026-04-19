@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Next</string>
+    <string name="title_activity_main">Next</string>
+    <string name="package_name">com.next.marketplace</string>
+    <string name="custom_url_scheme">com.next.marketplace</string>
+</resources>

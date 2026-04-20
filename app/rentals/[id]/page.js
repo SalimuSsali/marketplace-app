@@ -10,6 +10,7 @@ import { digitsOnly } from "../../../lib/digitsOnly";
 import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
 import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
+import { getItemImageUrls, getItemPrimaryImageUrl } from "../../../lib/itemImages";
 
 /** Same collection as legacy “property” listings. */
 const RENTALS_COLLECTION = "properties";
@@ -22,6 +23,7 @@ export default function RentalDetailPage() {
   const [rental, setRental] = useState(null);
   const [loading, setLoading] = useState(true);
   const [imageFailed, setImageFailed] = useState(false);
+  const [selectedImage, setSelectedImage] = useState("");
   const [deleting, setDeleting] = useState(false);
   const authUser = useFirebaseAuthUser();
   const currentUserEmail = authUser?.email ?? null;
@@ -51,6 +53,13 @@ export default function RentalDetailPage() {
 
     fetchRental();
   }, [id]);
+
+  useEffect(() => {
+    if (!rental) return;
+    const primary = getItemPrimaryImageUrl(rental);
+    setSelectedImage(primary);
+    setImageFailed(false);
+  }, [rental]);
 
   async function handleDelete() {
     if (!db || !id) return;
@@ -93,6 +102,8 @@ export default function RentalDetailPage() {
 
   const contactForWa = digitsOnly(rental.contact);
   const whatsappHref = contactForWa ? `https://wa.me/${contactForWa}` : null;
+  const images = getItemImageUrls(rental);
+  const mainImage = selectedImage || images[0] || "";
 
   return (
     <main className="app-shell">
@@ -106,25 +117,50 @@ export default function RentalDetailPage() {
         .
       </p>
 
-      <div className="mb-5 h-[150px] w-full overflow-hidden rounded-xl bg-neutral-100">
-        {!rental.imageUrl || String(rental.imageUrl).trim() === "" ? (
-          <div className="flex h-[150px] w-full items-center justify-center text-sm text-neutral-500">
+      <div className="mb-4 overflow-hidden rounded-xl bg-neutral-100">
+        {!mainImage ? (
+          <div className="flex h-[180px] w-full items-center justify-center text-sm text-neutral-500">
             No Image
           </div>
         ) : imageFailed ? (
-          <div className="flex h-[150px] w-full items-center justify-center text-sm text-neutral-500">
+          <div className="flex h-[180px] w-full items-center justify-center text-sm text-neutral-500">
             Image failed to load
           </div>
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={rental.imageUrl}
+            src={mainImage}
             alt=""
-            className="h-[150px] w-full object-cover"
+            className="h-[180px] w-full object-cover"
             onError={() => setImageFailed(true)}
           />
         )}
       </div>
+
+      {images.length > 1 ? (
+        <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+          {images.map((u, i) => {
+            const active = u === mainImage;
+            return (
+              <button
+                key={`${u}-${i}`}
+                type="button"
+                onClick={() => {
+                  setSelectedImage(u);
+                  setImageFailed(false);
+                }}
+                className={`shrink-0 overflow-hidden rounded-xl border bg-white ${
+                  active ? "border-emerald-600 ring-2 ring-emerald-600/20" : "border-gray-200"
+                }`}
+                aria-label="View image"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={u} alt="" className="h-16 w-16 object-cover" />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="app-fields mb-6">
         <p>

@@ -14,7 +14,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
-import { auth } from "../../lib/firebase";
+import { auth, db } from "../../lib/firebase";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import {
   getSellerSignupMode,
@@ -22,6 +22,7 @@ import {
   setSellerSignupMode,
   SELLER_SIGNUP_MODE,
 } from "../../lib/sellerIdentity";
+import { ensureUserDoc } from "../../lib/ensureUserDoc";
 
 export default function ProfilePage() {
   const [authUser, setAuthUser] = useState(null);
@@ -69,10 +70,25 @@ export default function ProfilePage() {
       .then((result) => {
         if (cancelled) return;
         if (result?.user) {
-          setSellerSignupMode(SELLER_SIGNUP_MODE.ACCOUNT);
-          setSignupPath(SELLER_SIGNUP_MODE.ACCOUNT);
-          setAuthFormError(null);
+          console.log("Google user:", result.user);
+          setAuthBusy(true);
+          return ensureUserDoc(db, result.user).then((u) => {
+            console.log("Firestore user doc:", u);
+            if (cancelled) return;
+            if (!u.ok) {
+              setAuthFormError(
+                `Signed in, but could not initialize user profile.\n\n${u.error}`,
+              );
+              return;
+            }
+            setSellerSignupMode(SELLER_SIGNUP_MODE.ACCOUNT);
+            setSignupPath(SELLER_SIGNUP_MODE.ACCOUNT);
+            setAuthFormError(null);
+          }).finally(() => {
+            if (!cancelled) setAuthBusy(false);
+          });
         }
+        return undefined;
       })
       .catch((err) => {
         if (!cancelled) {
@@ -94,7 +110,16 @@ export default function ProfilePage() {
     try {
       const provider = new GoogleAuthProvider();
       try {
-        await signInWithPopup(auth, provider);
+        const res = await signInWithPopup(auth, provider);
+        console.log("Google user:", res?.user);
+        const ensured = await ensureUserDoc(db, res?.user || null);
+        console.log("Firestore user doc:", ensured);
+        if (!ensured.ok) {
+          setAuthFormError(
+            `Signed in, but could not initialize user profile.\n\n${ensured.error}`,
+          );
+          return;
+        }
       } catch (popupErr) {
         if (popupErr?.code === "auth/popup-blocked") {
           await signInWithRedirect(auth, provider);
@@ -171,7 +196,14 @@ export default function ProfilePage() {
     setAuthFormError(null);
     setAuthBusy(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, emailPassword);
+      const res = await createUserWithEmailAndPassword(auth, email, emailPassword);
+      const ensured = await ensureUserDoc(db, res?.user || null);
+      if (!ensured.ok) {
+        setAuthFormError(
+          `Account created, but could not initialize user profile.\n\n${ensured.error}`,
+        );
+        return;
+      }
       setSellerSignupMode(SELLER_SIGNUP_MODE.EMAIL);
       setSignupPath(SELLER_SIGNUP_MODE.EMAIL);
       setEmailPassword("");
@@ -207,7 +239,14 @@ export default function ProfilePage() {
     setAuthFormError(null);
     setAuthBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email, emailPassword);
+      const res = await signInWithEmailAndPassword(auth, email, emailPassword);
+      const ensured = await ensureUserDoc(db, res?.user || null);
+      if (!ensured.ok) {
+        setAuthFormError(
+          `Signed in, but could not initialize user profile.\n\n${ensured.error}`,
+        );
+        return;
+      }
       setSellerSignupMode(SELLER_SIGNUP_MODE.EMAIL);
       setSignupPath(SELLER_SIGNUP_MODE.EMAIL);
       setEmailPassword("");

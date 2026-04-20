@@ -8,6 +8,8 @@ import { descriptionWordCount } from "../../lib/descriptionWords";
 import { db } from "../../lib/firebase";
 import { notifyPostCreated } from "../../lib/notifications";
 import { validateSellerEmailForPost } from "../../lib/sellerIdentity";
+import { uploadItemImageBatch } from "../../lib/itemImageUpload";
+import { MAX_ITEM_IMAGES, getItemPrimaryImageUrl, imageFieldsForFirestore } from "../../lib/itemImages";
 
 /** Firestore collection id stays `properties` so existing listings keep working. */
 const RENTALS_COLLECTION = "properties";
@@ -24,6 +26,8 @@ export default function RentalsPage() {
   const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageUrls, setImageUrls] = useState([]);
+  const [imageUploading, setImageUploading] = useState(false);
   const [location, setLocation] = useState("");
   const [sellerName, setSellerName] = useState("");
   const [contact, setContact] = useState("");
@@ -74,11 +78,13 @@ export default function RentalsPage() {
     setSaving(true);
     try {
       const n = price === "" ? null : Number(price);
+      const img = imageFieldsForFirestore(imageUrls.length ? imageUrls : [imageUrl]);
       await addDoc(collection(db, RENTALS_COLLECTION), {
         name: name.trim(),
         price: n === null || Number.isNaN(n) ? 0 : n,
         description: description.trim(),
-        imageUrl: imageUrl.trim(),
+        imageUrl: img.imageUrl,
+        imageUrls: img.imageUrls,
         location: location.trim(),
         sellerName: sellerName.trim(),
         email: postEmail,
@@ -90,6 +96,7 @@ export default function RentalsPage() {
       setPrice("");
       setDescription("");
       setImageUrl("");
+      setImageUrls([]);
       setLocation("");
       setSellerName("");
       setContact("");
@@ -100,6 +107,38 @@ export default function RentalsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function onRentalImageChange(e) {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    const room = MAX_ITEM_IMAGES - imageUrls.length;
+    if (room <= 0) {
+      alert(`You can add up to ${MAX_ITEM_IMAGES} images.`);
+      e.target.value = "";
+      return;
+    }
+    const batch = files.slice(0, room);
+    if (files.length > batch.length) {
+      alert(`Only the first ${batch.length} file(s) were added (max ${MAX_ITEM_IMAGES}).`);
+    }
+    setImageUploading(true);
+    try {
+      const uploaded = await uploadItemImageBatch(batch);
+      setImageUrls((prev) => [...prev, ...uploaded].filter(Boolean));
+      const primary = uploaded[0] || imageUrls[0] || "";
+      if (primary) setImageUrl(primary);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? "Upload failed.");
+      alert(msg);
+    } finally {
+      setImageUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  function removeRentalImageAt(index) {
+    setImageUrls((prev) => prev.filter((_, i) => i !== index));
   }
 
   return (
@@ -185,6 +224,43 @@ export default function RentalsPage() {
             ) : null}
           </label>
           <label className="app-label">
+            Images
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={onRentalImageChange}
+              disabled={imageUploading}
+              className="app-input py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 disabled:opacity-60"
+            />
+            <span className="text-xs text-neutral-500">
+              {imageUploading
+                ? "Uploading…"
+                : `Choose one or more images (${imageUrls.length}/${MAX_ITEM_IMAGES}).`}
+            </span>
+            {imageUrls.length ? (
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {imageUrls.map((u, i) => (
+                  <div
+                    key={`${u}-${i}`}
+                    className="relative overflow-hidden rounded-xl border border-gray-200 bg-white"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt="" className="h-24 w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeRentalImageAt(i)}
+                      className="absolute right-1 top-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-semibold text-white hover:bg-black/70"
+                      aria-label="Remove image"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </label>
+          <label className="app-label">
             Image URL
             <input
               value={imageUrl}
@@ -222,7 +298,7 @@ export default function RentalsPage() {
           </label>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || imageUploading}
             className="app-btn-primary disabled:opacity-60"
           >
             {saving ? "Saving…" : "Submit"}
@@ -240,9 +316,8 @@ export default function RentalsPage() {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((p) => {
-              const hasImage = Boolean(
-                p.imageUrl && String(p.imageUrl).trim()
-              );
+              const primaryUrl = getItemPrimaryImageUrl(p);
+              const hasImage = Boolean(primaryUrl && String(primaryUrl).trim());
               const failed = Boolean(failedImagesById[p.id]);
 
               return (
@@ -263,7 +338,7 @@ export default function RentalsPage() {
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={p.imageUrl}
+                        src={primaryUrl}
                         alt=""
                         className="h-full w-full object-cover"
                         onError={() =>

@@ -6,7 +6,7 @@ loadEnv({ path: path.resolve(__dirname, ".env.local") });
 loadEnv({ path: path.resolve(__dirname, ".env") });
 
 /** Production site loaded in the Android WebView when `CAPACITOR_SERVER_URL` is unset. */
-const DEFAULT_SERVER_URL = "https://marketplace-app-woad.vercel.app";
+const DEFAULT_SERVER_URL = "https://next-five-mocha.vercel.app";
 
 /**
  * Android shell loads your Next.js deployment (or dev server) in a WebView.

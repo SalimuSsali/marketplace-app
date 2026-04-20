@@ -9,7 +9,10 @@ import { parseTagsInput } from "../../lib/itemFields";
 import { formatSubmitError } from "../../lib/formatSubmitError";
 import { db } from "../../lib/firebase";
 import { newShopExpiresAt } from "../../lib/expiry";
-import { newItemLifecycleFields } from "../../lib/itemLifecycle";
+import {
+  getUserTypeForUserId,
+  newItemLifecycleFields,
+} from "../../lib/itemLifecycle";
 import {
   planItemImageFileBatch,
   uploadItemImageBatch,
@@ -128,6 +131,7 @@ function AddPageInner() {
           return;
         }
         const sellerUid = authUser.uid;
+        const userType = await getUserTypeForUserId(db, sellerUid);
         const itemData = {
           title,
           name: title,
@@ -149,7 +153,8 @@ function AddPageInner() {
             ? { whatsapp: waParsed.digits, contactPhone: waParsed.digits }
             : {}),
           userId: sellerUid,
-          ...newItemLifecycleFields(),
+          userType,
+          ...newItemLifecycleFields(userType),
         };
         await addDoc(collection(db, "items"), itemData);
         await notifyPostCreated(postEmail);

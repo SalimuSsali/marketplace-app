@@ -1,5 +1,6 @@
 import "./globals.css";
 import { AppErrorBoundary } from "../components/AppErrorBoundary";
+import { GlobalHeaderMount } from "../components/GlobalHeaderMount";
 import { GlobalBottomTabBarMount } from "../components/GlobalBottomTabBarMount";
 import { MainColumnPad } from "../components/MainColumnPad";
 import { PwaInstallBanner } from "../components/PwaInstallBanner";
@@ -40,6 +41,7 @@ export default function RootLayout({ children }) {
           <ServiceWorkerRegister />
           <InitNotifications />
           <PwaInstallBanner />
+          <GlobalHeaderMount />
           <MainColumnPad>{children}</MainColumnPad>
           <GlobalBottomTabBarMount />
         </AppErrorBoundary>

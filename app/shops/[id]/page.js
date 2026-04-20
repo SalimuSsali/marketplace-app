@@ -20,6 +20,7 @@ import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
 import { isExpired, isExpiringSoon, newShopExpiresAt } from "../../../lib/expiry";
 import {
   filterActiveItems,
+  getUserTypeForUserId,
   newItemLifecycleFields,
   nextItemExpiresAfterRenewClient,
   renewItem,
@@ -199,6 +200,7 @@ export default function ShopDetailPage() {
         alert(waParsed.error);
         return;
       }
+    const userType = await getUserTypeForUserId(db, authUser.uid);
       await addDoc(collection(db, "items"), {
         title,
         name: title,
@@ -214,8 +216,9 @@ export default function ShopDetailPage() {
         email: postEmail,
         shopId: id,
         userId: authUser.uid,
+      userType,
         ...defaultItemLocationForCreate(),
-        ...newItemLifecycleFields(),
+      ...newItemLifecycleFields(userType),
       });
       await notifyPostCreated(postEmail);
       setPostTitle("");

@@ -228,23 +228,36 @@ export default function RentalsPage() {
             ) : null}
           </label>
           <div className="flex flex-col gap-2">
-            <span className="app-label mb-0">Photos</span>
+            <span className="app-label mb-0">Images</span>
             <p className="text-xs text-neutral-500">
-              Upload pictures from your phone or computer. You can add up to {MAX_ITEM_IMAGES}{" "}
-              images.
+              Pick photos from your device gallery or files (up to {MAX_ITEM_IMAGES}). They upload
+              to storage and the link below updates automatically.
             </p>
-            <label className="sr-only" htmlFor="rental-photo-upload">
-              Choose images from device storage
-            </label>
             <input
               id="rental-photo-upload"
               type="file"
               accept="image/*"
               multiple
               onChange={onRentalImageChange}
-              disabled={imageUploading}
-              className="app-input py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-emerald-800 disabled:opacity-60"
+              disabled={imageUploading || imageUrls.length >= MAX_ITEM_IMAGES}
+              className="sr-only"
+              aria-label="Choose images from device storage"
             />
+            {/* Native <label htmlFor> opens the file picker reliably on Android WebView; avoid JS .click() only. */}
+            <label
+              htmlFor="rental-photo-upload"
+              className={`inline-flex w-full cursor-pointer items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold shadow-sm transition sm:w-auto ${
+                imageUploading || imageUrls.length >= MAX_ITEM_IMAGES
+                  ? "cursor-not-allowed bg-emerald-400/70 text-white opacity-70"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+            >
+              {imageUploading
+                ? "Uploading…"
+                : imageUrls.length > 0
+                  ? "Add more photos"
+                  : "Choose from gallery / files"}
+            </label>
             <span className="text-xs text-neutral-500">
               {imageUploading
                 ? "Uploading…"
@@ -272,16 +285,20 @@ export default function RentalsPage() {
               </div>
             ) : null}
             <label className="app-label mt-1">
-              Optional: image URL
+              Image URL
               <input
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
                 type="url"
                 inputMode="url"
                 autoComplete="off"
-                placeholder="https://… if you prefer a link instead of upload"
+                placeholder={
+                  imageUrls.length
+                    ? "Filled after upload — remove photos to edit manually"
+                    : "https://… or use “Choose from gallery” above"
+                }
                 className="app-input"
-                disabled={Boolean(imageUrls.length)}
+                readOnly={Boolean(imageUrls.length)}
               />
             </label>
             {imageUrls.length ? (

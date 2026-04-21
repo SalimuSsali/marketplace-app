@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../../hooks/useFirebaseBootstrapVersion";
 import { digitsOnly } from "../../../lib/digitsOnly";
 import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
@@ -22,6 +23,7 @@ export default function RequestDetailPage() {
   const authUser = useFirebaseAuthUser();
   const currentUserEmail = authUser?.email ?? null;
   const requestRespondedRef = useRef(false);
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     requestRespondedRef.current = false;
@@ -51,7 +53,7 @@ export default function RequestDetailPage() {
     };
 
     fetchRequest();
-  }, [id]);
+  }, [id, fbBoot]);
 
   const trySimulateRequestResponse = useCallback(() => {
     if (!request?.email || requestRespondedRef.current) return;

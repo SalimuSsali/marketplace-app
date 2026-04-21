@@ -11,6 +11,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useFirebaseBootstrapVersion } from "../hooks/useFirebaseBootstrapVersion";
 
 const REVIEW_LIMIT = 100;
 const DISPLAY_LIMIT = 5;
@@ -23,6 +24,7 @@ function toMillis(v) {
 }
 
 export default function ItemReviewsSection({ itemId }) {
+  const fbBoot = useFirebaseBootstrapVersion();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -52,7 +54,7 @@ export default function ItemReviewsSection({ itemId }) {
     } finally {
       setLoading(false);
     }
-  }, [itemId]);
+  }, [itemId, fbBoot]);
 
   useEffect(() => {
     loadReviews();

@@ -9,6 +9,7 @@ import {
   where,
 } from "firebase/firestore";
 import { useFirebaseAuthUser } from "../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../hooks/useFirebaseBootstrapVersion";
 import { ensureConversation, sendConversationMessage } from "../lib/conversations";
 import { db } from "../lib/firebase";
 import { devError } from "../lib/devLog";
@@ -27,6 +28,7 @@ function messageTime(m) {
 export default function ItemSellerChat({ itemId, sellerUserId }) {
   const authUser = useFirebaseAuthUser();
   const uid = authUser?.uid ?? null;
+  const fbBoot = useFirebaseBootstrapVersion();
   const [open, setOpen] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [sellerThreads, setSellerThreads] = useState([]);
@@ -63,7 +65,7 @@ export default function ItemSellerChat({ itemId, sellerUserId }) {
       },
     );
     return () => unsub();
-  }, [db, itemId, sellerUserId, isSeller]);
+  }, [db, itemId, sellerUserId, isSeller, fbBoot]);
 
   useEffect(() => {
     if (!db || !conversationId || !open) {
@@ -90,7 +92,7 @@ export default function ItemSellerChat({ itemId, sellerUserId }) {
       },
     );
     return () => unsub();
-  }, [conversationId, open]);
+  }, [conversationId, open, db, fbBoot]);
 
   useEffect(() => {
     if (open && bottomRef.current) {
@@ -136,7 +138,7 @@ export default function ItemSellerChat({ itemId, sellerUserId }) {
     } finally {
       setBusy(false);
     }
-  }, [db, itemId, sellerUserId, uid]);
+  }, [db, itemId, sellerUserId, uid, fbBoot]);
 
   function openSellerThread(threadDocId) {
     setError(null);

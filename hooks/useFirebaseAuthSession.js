@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../lib/firebase";
+import { auth, FIREBASE_BOOTSTRAP_EVENT } from "../lib/firebase";
 
 /**
  * Firebase auth user plus `ready` (false until first auth state is known).
@@ -13,15 +13,31 @@ export function useFirebaseAuthSession() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!auth) {
-      setUser(null);
-      setReady(true);
-      return;
+    let unsub = () => {};
+    function attach() {
+      unsub();
+      unsub = () => {};
+      if (!auth) {
+        setUser(null);
+        setReady(true);
+        return;
+      }
+      unsub = onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        setReady(true);
+      });
     }
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setReady(true);
-    });
+    attach();
+    const onBoot = () => attach();
+    if (typeof window !== "undefined") {
+      window.addEventListener(FIREBASE_BOOTSTRAP_EVENT, onBoot);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener(FIREBASE_BOOTSTRAP_EVENT, onBoot);
+      }
+      unsub();
+    };
   }, []);
 
   return { user, ready };

@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../../hooks/useFirebaseBootstrapVersion";
 import { digitsOnly } from "../../../lib/digitsOnly";
 import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
@@ -27,6 +28,7 @@ export default function RentalDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const authUser = useFirebaseAuthUser();
   const currentUserEmail = authUser?.email ?? null;
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     const fetchRental = async () => {
@@ -52,7 +54,7 @@ export default function RentalDetailPage() {
     };
 
     fetchRental();
-  }, [id]);
+  }, [id, fbBoot]);
 
   useEffect(() => {
     if (!rental) return;

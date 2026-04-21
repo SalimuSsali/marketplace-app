@@ -15,6 +15,7 @@ import {
 } from "firebase/auth";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
 import { auth, db } from "../../lib/firebase";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import {
   getSellerSignupMode,
@@ -28,6 +29,7 @@ const AUTH_MISSING_ALERT =
   "Auth is not configured. Add NEXT_PUBLIC_FIREBASE_* keys from Firebase Console (see .env.example) to .env.local or Vercel, then restart / redeploy.";
 
 export default function ProfilePage() {
+  const fbBoot = useFirebaseBootstrapVersion();
   const [authUser, setAuthUser] = useState(null);
   const [signupPath, setSignupPath] = useState(null);
   const [emailDraft, setEmailDraft] = useState("");
@@ -59,7 +61,7 @@ export default function ProfilePage() {
       if (u) setAuthFormError(null);
     });
     return () => unsub();
-  }, []);
+  }, [fbBoot]);
 
   useEffect(() => {
     setSignupPath(getSellerSignupMode());
@@ -101,7 +103,7 @@ export default function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fbBoot]);
 
   async function handleGoogleSignIn() {
     if (!auth) {

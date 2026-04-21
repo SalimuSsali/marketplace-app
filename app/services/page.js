@@ -7,6 +7,7 @@ import { useFirebaseAuthUser } from "../../hooks/useFirebaseAuthUser";
 import { descriptionWordCount } from "../../lib/descriptionWords";
 import { formatSubmitError } from "../../lib/formatSubmitError";
 import { db } from "../../lib/firebase";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import {
   imageFieldsForFirestore,
   MAX_ITEM_IMAGES,
@@ -42,6 +43,7 @@ export default function ServicesPage() {
   const [location, setLocation] = useState("");
   const [serviceImageUrls, setServiceImageUrls] = useState([]);
   const [serviceImageUploading, setServiceImageUploading] = useState(false);
+  const fbBoot = useFirebaseBootstrapVersion();
 
   const loadServices = useCallback(async () => {
     try {
@@ -50,7 +52,7 @@ export default function ServicesPage() {
     } catch {
       setServices([]);
     }
-  }, []);
+  }, [fbBoot]);
 
   useEffect(() => {
     loadServices();

@@ -11,6 +11,7 @@ import {
 import { shopMatchesSearch } from "../../lib/itemFields";
 import { getItemPrimaryImageUrl } from "../../lib/itemImages";
 import { db } from "../../lib/firebase";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { notifyShopExpiringSoonOncePerSession } from "../../lib/notifications";
 import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
 
@@ -18,6 +19,7 @@ export default function ShopsPage() {
   const [shops, setShops] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [renewingId, setRenewingId] = useState(null);
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     const fetchShops = async () => {
@@ -46,7 +48,7 @@ export default function ShopsPage() {
     };
 
     fetchShops();
-  }, []);
+  }, [fbBoot]);
 
   async function renewShop(shopId) {
     if (!db) return;

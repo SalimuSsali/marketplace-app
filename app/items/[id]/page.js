@@ -8,6 +8,7 @@ import ItemReviewsSection from "../../../components/ItemReviewsSection";
 import { ItemExpiryWarning } from "../../../components/ExpiryWarning";
 import { ItemExpiryCountdown } from "../../../components/ItemExpiryCountdown";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../../hooks/useFirebaseBootstrapVersion";
 import {
   getItemStoredWhatsappDigits,
   getItemWhatsappHref,
@@ -37,6 +38,7 @@ export default function ItemDetailPage() {
   const [renewing, setRenewing] = useState(false);
   const authUser = useFirebaseAuthUser();
   const currentUserEmail = authUser?.email ?? null;
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     const fetchItem = async () => {
@@ -68,7 +70,7 @@ export default function ItemDetailPage() {
     };
 
     fetchItem();
-  }, [id]);
+  }, [id, fbBoot]);
 
   const imageUrls = useMemo(() => getItemImageUrls(item), [item]);
 

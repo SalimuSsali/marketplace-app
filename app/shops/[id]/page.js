@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { ItemExpiryWarning, ShopExpiryWarning } from "../../../components/ExpiryWarning";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../../hooks/useFirebaseBootstrapVersion";
 import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
 import { isExpired, isExpiringSoon, newShopExpiresAt } from "../../../lib/expiry";
 import {
@@ -80,6 +81,7 @@ export default function ShopDetailPage() {
   const [renewingShop, setRenewingShop] = useState(false);
   const [renewingItemId, setRenewingItemId] = useState(null);
   const authUser = useFirebaseAuthUser();
+  const fbBoot = useFirebaseBootstrapVersion();
 
   const [postTitle, setPostTitle] = useState("");
   const [price, setPrice] = useState("");
@@ -174,7 +176,7 @@ export default function ShopDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, fbBoot]);
 
   async function handlePostItem(e) {
     e.preventDefault();

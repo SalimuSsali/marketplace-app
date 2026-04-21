@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { addDoc, collection, getDocs } from "firebase/firestore";
 import { useFirebaseAuthUser } from "../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { descriptionWordCount } from "../../lib/descriptionWords";
 import { db } from "../../lib/firebase";
 import { notifyPostCreated } from "../../lib/notifications";
@@ -32,6 +33,7 @@ export default function RentalsPage() {
   const [sellerName, setSellerName] = useState("");
   const [contact, setContact] = useState("");
   const authUser = useFirebaseAuthUser();
+  const fbBoot = useFirebaseBootstrapVersion();
 
   const loadRentals = useCallback(async () => {
     try {
@@ -50,7 +52,7 @@ export default function RentalsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fbBoot]);
 
   useEffect(() => {
     loadRentals();

@@ -9,6 +9,7 @@ import { EmbeddedBottomTabBarMount } from "../components/EmbeddedBottomTabBarMou
 import { ItemExpiryCountdown } from "../components/ItemExpiryCountdown";
 import { SearchHighlightText } from "../components/SearchHighlightText";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useFirebaseBootstrapVersion } from "../hooks/useFirebaseBootstrapVersion";
 import { filterActiveItems } from "../lib/itemLifecycle";
 import {
   SEARCH_DEBOUNCE_MS,
@@ -50,6 +51,7 @@ function HomePageInner() {
   );
   const [userLocation, setUserLocation] = useState("");
   const [alertDismissed, setAlertDismissed] = useState(false);
+  const fbBoot = useFirebaseBootstrapVersion();
 
   // Prevent hydration mismatches on the phone-mockup homepage.
   // This page is highly interactive and can be affected by extensions altering the DOM.
@@ -92,7 +94,7 @@ function HomePageInner() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fbBoot]);
 
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
   const debouncedTrim = debouncedSearch.trim();

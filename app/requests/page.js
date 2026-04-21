@@ -5,10 +5,12 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 
 function RequestsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const fbBoot = useFirebaseBootstrapVersion();
   const prefillTimerRef = useRef(null);
   const [requests, setRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,7 +36,7 @@ function RequestsPageInner() {
     };
 
     fetchRequests();
-  }, []);
+  }, [fbBoot]);
 
   useEffect(() => {
     const t = searchParams.get("title");

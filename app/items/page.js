@@ -7,6 +7,7 @@ import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
 import { ItemExpiryWarning } from "../../components/ExpiryWarning";
 import { SearchHighlightText } from "../../components/SearchHighlightText";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { ItemExpiryCountdown } from "../../components/ItemExpiryCountdown";
 import { isExpiringSoon } from "../../lib/expiry";
 import {
@@ -44,6 +45,7 @@ function ItemsPageInner() {
   const [searchQuery, setSearchQuery] = useState("");
   const [failedImagesById, setFailedImagesById] = useState({});
   const [renewingId, setRenewingId] = useState(null);
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -73,7 +75,7 @@ function ItemsPageInner() {
     };
 
     fetchItems();
-  }, []);
+  }, [fbBoot]);
 
   async function onRenewItemClick(item) {
     if (!db || !item?.id) return;

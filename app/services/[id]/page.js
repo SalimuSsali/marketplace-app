@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import ContactSellerSection from "../../../components/ContactSellerSection";
 import { useFirebaseAuthUser } from "../../../hooks/useFirebaseAuthUser";
+import { useFirebaseBootstrapVersion } from "../../../hooks/useFirebaseBootstrapVersion";
 import { digitsOnly } from "../../../lib/digitsOnly";
 import { devError } from "../../../lib/devLog";
 import { db } from "../../../lib/firebase";
@@ -21,6 +22,7 @@ export default function ServiceDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const authUser = useFirebaseAuthUser();
   const currentUserEmail = authUser?.email ?? null;
+  const fbBoot = useFirebaseBootstrapVersion();
 
   useEffect(() => {
     const fetchService = async () => {
@@ -46,7 +48,7 @@ export default function ServiceDetailPage() {
     };
 
     fetchService();
-  }, [id]);
+  }, [id, fbBoot]);
 
   if (loading) {
     return (

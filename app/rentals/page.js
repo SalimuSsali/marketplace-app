@@ -292,23 +292,25 @@ export default function RentalsPage() {
 
           <label className="app-label">
             Photos (up to {MAX_ITEM_IMAGES})
-            <input
-              id="rental-photo-upload"
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              multiple
-              onChange={onRentalImagesChange}
-              disabled={imageUploading || imageUrls.length >= MAX_ITEM_IMAGES}
-              className="app-input py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 disabled:opacity-60"
-              aria-label={`Choose up to ${MAX_ITEM_IMAGES} photos`}
-            />
-            <span className="text-xs font-normal text-neutral-500">
-              {imageUploading
-                ? "Uploading…"
-                : imageUrls.length > 0
-                  ? `${imageUrls.length} file${imageUrls.length === 1 ? "" : "s"} added (max ${MAX_ITEM_IMAGES}).`
-                  : "JPEG, PNG, GIF, or WebP."}
-            </span>
+            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+              <input
+                id="rental-photo-upload"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                onChange={onRentalImagesChange}
+                disabled={imageUploading || imageUrls.length >= MAX_ITEM_IMAGES}
+                className="w-full cursor-pointer text-sm text-neutral-900 file:mr-4 file:cursor-pointer file:rounded file:border-0 file:bg-sky-100 file:px-3.5 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={`Choose up to ${MAX_ITEM_IMAGES} photos`}
+              />
+            </div>
+            {imageUploading || imageUrls.length > 0 ? (
+              <span className="text-xs font-normal text-neutral-500">
+                {imageUploading
+                  ? "Uploading…"
+                  : `${imageUrls.length} file${imageUrls.length === 1 ? "" : "s"} selected (max ${MAX_ITEM_IMAGES}).`}
+              </span>
+            ) : null}
             {imageUrls.length ? (
               <div className="mt-1 grid grid-cols-3 gap-2">
                 {imageUrls.map((u, i) => (

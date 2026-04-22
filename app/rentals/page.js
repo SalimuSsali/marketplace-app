@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDoc, collection, getDocs } from "firebase/firestore";
 import { useFirebaseAuthUser } from "../../hooks/useFirebaseAuthUser";
 import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
@@ -22,6 +22,19 @@ import {
 
 /** Firestore collection id stays `properties` so existing listings keep working. */
 const RENTALS_COLLECTION = "properties";
+
+/** Rentals: only these types in the picker and drag-drop (matches typical JPEG/PNG/WebP). */
+const RENTAL_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
+const MIN_RENTAL_PHOTOS = 1;
+const MAX_RENTAL_PHOTOS = MAX_ITEM_IMAGES;
+
+const ALLOWED_RENTAL_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function isAllowedRentalFile(file) {
+  const t = String(file?.type ?? "").trim().toLowerCase();
+  if (ALLOWED_RENTAL_MIME.has(t)) return true;
+  return /\.(jpe?g|png|webp)$/i.test(String(file?.name ?? ""));
+}
 
 function createdAtMs(docData) {
   const c = docData?.createdAt;
@@ -45,10 +58,12 @@ export default function RentalsPage() {
   const [location, setLocation] = useState("");
   const [sellerName, setSellerName] = useState("");
   const [contact, setContact] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  /** @type {string[]} Public URLs after R2 upload (stored as Firestore `imageUrls`). */
   const [imageUrls, setImageUrls] = useState([]);
   const [imageUploading, setImageUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
+  const fileInputRef = useRef(null);
   const authUser = useFirebaseAuthUser();
   const fbBoot = useFirebaseBootstrapVersion();
 
@@ -93,8 +108,67 @@ export default function RentalsPage() {
     setLocation("");
     setSellerName("");
     setContact("");
-    setImageUrl("");
     setImageUrls([]);
+  }
+
+  async function addRentalFiles(fileSource) {
+    const raw = Array.from(fileSource ?? []).filter((f) => f instanceof File);
+    const filtered = raw.filter(isAllowedRentalFile);
+    if (filtered.length < raw.length) {
+      alert("Some files were skipped. Only JPG, JPEG, PNG, and WebP are allowed.");
+    }
+    if (!filtered.length) return;
+
+    const plan = planItemImageFileBatch(filtered, imageUrls.length);
+    if (plan.action === "none") return;
+    if (plan.action === "full") {
+      alert(`You can add up to ${MAX_RENTAL_PHOTOS} images. Remove one to add more.`);
+      return;
+    }
+    if (plan.truncated) {
+      alert(
+        `Only the first ${plan.batch.length} file(s) were added (max ${MAX_RENTAL_PHOTOS} images).`,
+      );
+    }
+
+    setImageUploading(true);
+    try {
+      const uploaded = await uploadItemImageBatch(plan.batch);
+      setImageUrls((prev) => [...prev, ...uploaded].filter(Boolean));
+    } catch (err) {
+      alert(formatSubmitError(err));
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
+  async function onRentalImagesChange(e) {
+    await addRentalFiles(e.target.files);
+    e.target.value = "";
+  }
+
+  function removeRentalImageAt(index) {
+    setImageUrls((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!imageUploading && imageUrls.length < MAX_RENTAL_PHOTOS) setDragActive(true);
+  }
+
+  function onDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }
+
+  async function onDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (imageUploading || imageUrls.length >= MAX_RENTAL_PHOTOS) return;
+    await addRentalFiles(e.dataTransfer.files);
   }
 
   async function handleSubmit(e) {
@@ -103,6 +177,14 @@ export default function RentalsPage() {
       alert(
         "Database is not configured. Add Firebase keys to .env.local and restart the dev server.",
       );
+      return;
+    }
+    if (imageUrls.length < MIN_RENTAL_PHOTOS) {
+      alert(`Add at least ${MIN_RENTAL_PHOTOS} photo (up to ${MAX_RENTAL_PHOTOS}).`);
+      return;
+    }
+    if (imageUrls.length > MAX_RENTAL_PHOTOS) {
+      alert(`Remove photos until you have at most ${MAX_RENTAL_PHOTOS}.`);
       return;
     }
     const emailCheck = validateSellerEmailForPost(authUser);
@@ -114,7 +196,7 @@ export default function RentalsPage() {
     setSaving(true);
     try {
       const n = price === "" ? null : Number(price);
-      const img = imageFieldsForFirestore(imageUrls.length ? imageUrls : [imageUrl]);
+      const img = imageFieldsForFirestore(imageUrls);
       await addDoc(collection(db, RENTALS_COLLECTION), {
         name: name.trim(),
         price: n === null || Number.isNaN(n) ? 0 : n,
@@ -138,42 +220,9 @@ export default function RentalsPage() {
     }
   }
 
-  async function onRentalImagesChange(e) {
-    const plan = planItemImageFileBatch(e.target.files, imageUrls.length);
-    if (plan.action === "none") return;
-    if (plan.action === "full") {
-      alert(`You can add up to ${MAX_ITEM_IMAGES} images. Remove one to add more.`);
-      e.target.value = "";
-      return;
-    }
-    if (plan.truncated) {
-      alert(
-        `Only the first ${plan.batch.length} file(s) were added (max ${MAX_ITEM_IMAGES} images).`,
-      );
-    }
-    setImageUploading(true);
-    try {
-      const uploaded = await uploadItemImageBatch(plan.batch);
-      setImageUrls((prev) => {
-        const next = [...prev, ...uploaded].filter(Boolean);
-        setImageUrl(next[0] ?? "");
-        return next;
-      });
-    } catch (err) {
-      alert(formatSubmitError(err));
-    } finally {
-      setImageUploading(false);
-      e.target.value = "";
-    }
-  }
-
-  function removeRentalImageAt(index) {
-    setImageUrls((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      setImageUrl(next[0] ?? "");
-      return next;
-    });
-  }
+  const canAddMore = !imageUploading && imageUrls.length < MAX_RENTAL_PHOTOS;
+  const photoCountOk =
+    imageUrls.length >= MIN_RENTAL_PHOTOS && imageUrls.length <= MAX_RENTAL_PHOTOS;
 
   return (
     <main className="app-shell">
@@ -290,27 +339,57 @@ export default function RentalsPage() {
             />
           </label>
 
-          <label className="app-label">
-            Photos (up to {MAX_ITEM_IMAGES})
-            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
-              <input
-                id="rental-photo-upload"
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                multiple
-                onChange={onRentalImagesChange}
-                disabled={imageUploading || imageUrls.length >= MAX_ITEM_IMAGES}
-                className="w-full cursor-pointer text-sm text-neutral-900 file:mr-4 file:cursor-pointer file:rounded file:border-0 file:bg-sky-100 file:px-3.5 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-60"
-                aria-label={`Choose up to ${MAX_ITEM_IMAGES} photos`}
-              />
+          <div className="app-label">
+            <span>
+              Photos ({MIN_RENTAL_PHOTOS}–{MAX_RENTAL_PHOTOS}, JPG / PNG / WebP)
+            </span>
+            <input
+              ref={fileInputRef}
+              id="rental-photo-upload"
+              type="file"
+              accept={RENTAL_IMAGE_ACCEPT}
+              multiple
+              className="sr-only"
+              onChange={onRentalImagesChange}
+              disabled={!canAddMore}
+              aria-label={`Choose rental photos, ${MIN_RENTAL_PHOTOS} to ${MAX_RENTAL_PHOTOS} images`}
+            />
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              className={`rounded-lg border bg-white px-3 py-2.5 shadow-sm transition ${
+                dragActive
+                  ? "border-blue-500 ring-2 ring-blue-500/25"
+                  : "border-gray-200"
+              }`}
+            >
+              <div
+                className={`rounded-md border border-dashed px-3 py-5 text-center text-sm ${
+                  canAddMore ? "border-gray-300 bg-neutral-50/80" : "border-gray-200 bg-neutral-100"
+                }`}
+              >
+                <p className="text-neutral-600">
+                  {imageUploading
+                    ? "Uploading…"
+                    : canAddMore
+                      ? "Drag and drop images here, or use Add Photos."
+                      : "Maximum photos reached. Remove one to add more."}
+                </p>
+                <button
+                  type="button"
+                  disabled={!canAddMore}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-3 inline-flex min-h-[40px] items-center justify-center rounded-lg bg-sky-100 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add Photos
+                </button>
+              </div>
             </div>
-            {imageUploading || imageUrls.length > 0 ? (
-              <span className="text-xs font-normal text-neutral-500">
-                {imageUploading
-                  ? "Uploading…"
-                  : `${imageUrls.length} file${imageUrls.length === 1 ? "" : "s"} selected (max ${MAX_ITEM_IMAGES}).`}
-              </span>
-            ) : null}
+            <span className="text-xs font-normal text-neutral-500">
+              {imageUrls.length} / {MAX_RENTAL_PHOTOS} uploaded
+              {!photoCountOk && !imageUploading ? " — add at least one photo to submit." : ""}
+            </span>
             {imageUrls.length ? (
               <div className="mt-1 grid grid-cols-3 gap-2">
                 {imageUrls.map((u, i) => (
@@ -319,7 +398,12 @@ export default function RentalsPage() {
                     className="relative overflow-hidden rounded-xl border border-gray-200 bg-white"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={u} alt="" className="h-24 w-full object-cover" referrerPolicy="no-referrer" />
+                    <img
+                      src={u}
+                      alt=""
+                      className="h-24 w-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
                     <button
                       type="button"
                       onClick={() => removeRentalImageAt(i)}
@@ -332,30 +416,11 @@ export default function RentalsPage() {
                 ))}
               </div>
             ) : null}
-          </label>
-
-          {imageUrls.length === 0 ? (
-            <label className="app-label">
-              Image URL (optional — skip if you use photos above)
-              <input
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                type="url"
-                inputMode="url"
-                autoComplete="off"
-                placeholder="Paste an image link, or choose files under Photos"
-                className="app-input"
-              />
-            </label>
-          ) : (
-            <p className="text-xs text-neutral-600">
-              Your photos are shown above. Remove them with ✕ if you want to use a link instead.
-            </p>
-          )}
+          </div>
 
           <button
             type="submit"
-            disabled={saving || imageUploading}
+            disabled={saving || imageUploading || !photoCountOk}
             className="app-btn-primary font-bold disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Submit"}

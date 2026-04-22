@@ -3,7 +3,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "cmd /c \"node scripts/gen-firebase-messaging-sw.mjs & node scripts/kill-ports.js 3010 3000 3001 >nul 2>&1 & next dev -p 3010\"",
+    "dev": "cmd /c \"node scripts/gen-firebase-messaging-sw.mjs & node scripts/kill-ports.js 3010 3000 3001 >nul 2>&1 & node scripts/open-browser.js & next dev -p 3010\"",
     "dev:3010": "next dev -p 3010",
     "prebuild": "node scripts/ensure-pwa-icons.mjs && node scripts/gen-firebase-messaging-sw.mjs",
     "build": "next build",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1026.0",
+    "@aws-sdk/s3-request-presigner": "^3.1026.0",
     "@capacitor/android": "^7.6.2",
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.2",

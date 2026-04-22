@@ -4,8 +4,9 @@ import {
   getR2Config,
   getR2EnvShapeError,
   isR2ApiEndpointUrl,
+  presignPutObjectUrl,
+  publicUrlForKey,
   r2UploadErrorUserMessage,
-  uploadImageToR2,
 } from "../../../lib/r2";
 
 export const runtime = "nodejs";
@@ -51,42 +52,26 @@ export async function POST(req) {
     );
   }
 
-  let incoming;
+  /** @type {{ filename?: string, type?: string, size?: number } | null} */
+  let body = null;
   try {
-    incoming = await req.formData();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/1\s*mb|body.*limit|413|entity too large|payload too large/i.test(msg)) {
-      return Response.json(
-        {
-          error: {
-            message:
-              "Request body too large for the server. Try a smaller image (under ~1 MB) or configure a higher limit for your host.",
-          },
-        },
-        { status: 413 }
-      );
-    }
-    return Response.json(
-      { error: { message: "Invalid form data." } },
-      { status: 400 }
-    );
+    body = await req.json();
+  } catch {
+    body = null;
   }
+  const type = String(body?.type ?? "");
+  const size = Number(body?.size ?? NaN);
+  const filename = safeFileName(body?.filename ?? "upload");
 
-  const file = incoming.get("file");
-  if (!file || typeof file === "string") {
-    return Response.json({ error: { message: "Missing file." } }, { status: 400 });
-  }
-
-  const type = file.type || "";
   if (!ALLOWED_TYPES.has(type)) {
     return Response.json(
       { error: { message: "Only JPEG, PNG, GIF, and WebP images are allowed." } },
       { status: 400 }
     );
   }
-
-  const size = file.size;
+  if (!Number.isFinite(size) || size <= 0) {
+    return Response.json({ error: { message: "Missing file size." } }, { status: 400 });
+  }
   if (size > MAX_BYTES) {
     return Response.json(
       { error: { message: `File too large (max ${MAX_BYTES / (1024 * 1024)} MB).` } },
@@ -94,7 +79,6 @@ export async function POST(req) {
     );
   }
 
-  const buf = Buffer.from(await file.arrayBuffer());
   const ext =
     type === "image/jpeg"
       ? "jpg"
@@ -103,37 +87,19 @@ export async function POST(req) {
         : type === "image/gif"
           ? "gif"
           : "webp";
-  const stem = safeFileName(file.name).replace(/\.[^.]+$/, "") || "upload";
-  // Keep the public URL simple: https://<public-base>/<filename>
+  const stem = filename.replace(/\.[^.]+$/, "") || "upload";
   const key = `${Date.now()}-${randomUUID()}-${stem}.${ext}`;
 
   try {
-    const url = await uploadImageToR2(config, key, buf, type);
-    // Avoid an extra network round-trip on every upload.
-    // Keep the probe opt-in for debugging only.
-    if (process.env.R2_VERIFY_PUBLIC_URL === "1") {
-      try {
-        const probe = await fetch(url, { method: "HEAD", redirect: "follow" });
-        if (!probe.ok) {
-          return Response.json(
-            {
-              error: {
-                message: `File uploaded, but the public URL is not reachable (HTTP ${probe.status}). Turn on public access for this bucket (R2 → bucket → Settings → Public access) and set R2_PUBLIC_BASE_URL to the exact r2.dev or custom-domain base URL Cloudflare shows.`,
-              },
-            },
-            { status: 502 }
-          );
-        }
-      } catch {
-        // HEAD can fail (e.g. TLS from server); upload already succeeded — still return URL.
-      }
-    }
-    return Response.json({ url, key });
+    const uploadUrl = await presignPutObjectUrl(config, key, type, { expiresInSeconds: 90 });
+    const url = publicUrlForKey(config, key);
+    return Response.json({ uploadUrl, url, key, method: "PUT" });
   } catch (e) {
-    logServerError("r2-upload", e);
+    logServerError("r2-upload-url", e);
     return Response.json(
       { error: { message: r2UploadErrorUserMessage(e) } },
       { status: 502 }
     );
   }
 }
+

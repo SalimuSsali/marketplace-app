@@ -229,6 +229,28 @@ export default function RentalsPage() {
               </span>
             ) : null}
           </label>
+          <label className="app-label mt-1">
+            Image URL (optional if you uploaded photos)
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              placeholder={
+                imageUrls.length
+                  ? "Set automatically after upload — remove photos to type a link"
+                  : "Paste a link here, or upload photos above"
+              }
+              className="app-input"
+              readOnly={Boolean(imageUrls.length)}
+            />
+          </label>
+          {imageUrls.length ? (
+            <p className="text-xs text-neutral-500">
+              Remove all uploaded photos above to paste a URL instead.
+            </p>
+          ) : null}
           <div className="flex flex-col gap-2 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
             <span className="app-label mb-0 text-base">Upload photos</span>
             <p className="text-xs text-neutral-600">
@@ -284,28 +306,6 @@ export default function RentalsPage() {
                   </div>
                 ))}
               </div>
-            ) : null}
-            <label className="app-label mt-1">
-              Image URL (optional if you uploaded photos)
-              <input
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                type="url"
-                inputMode="url"
-                autoComplete="off"
-                placeholder={
-                  imageUrls.length
-                    ? "Set automatically after upload — remove photos to type a link"
-                    : "Paste a link here, or upload photos above"
-                }
-                className="app-input"
-                readOnly={Boolean(imageUrls.length)}
-              />
-            </label>
-            {imageUrls.length ? (
-              <p className="text-xs text-neutral-500">
-                Remove all uploaded photos above to paste a URL instead.
-              </p>
             ) : null}
           </div>
           <label className="app-label">

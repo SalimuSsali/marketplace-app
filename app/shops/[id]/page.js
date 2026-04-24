@@ -48,7 +48,7 @@ import {
 import { db } from "../../../lib/firebase";
 import { getFirestoreDocIdFromParams } from "../../../lib/routeParams";
 import { defaultItemLocationForCreate } from "../../../lib/itemLocation";
-import { validateGoogleUserForItemPost } from "../../../lib/sellerIdentity";
+import { validateUserForItemPost } from "../../../lib/sellerIdentity";
 import { parseOptionalWhatsapp } from "../../../lib/whatsappItem";
 import {
   notifyPostCreated,
@@ -185,12 +185,12 @@ export default function ShopDetailPage() {
       alert("Please enter a title.");
       return;
     }
-    const googleCheck = validateGoogleUserForItemPost(authUser);
-    if (!googleCheck.ok) {
-      alert(googleCheck.message);
+    const userCheck = validateUserForItemPost(authUser);
+    if (!userCheck.ok) {
+      alert(userCheck.message);
       return;
     }
-    const postEmail = googleCheck.email;
+    const postEmail = userCheck.email;
     setPostSaving(true);
     try {
       const n = price === "" ? null : Number(price);

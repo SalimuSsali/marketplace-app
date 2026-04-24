@@ -21,7 +21,7 @@ import {
 import { notifyPostCreated } from "../../lib/notifications";
 import { imageFieldsForFirestore, MAX_ITEM_IMAGES } from "../../lib/itemImages";
 import {
-  validateGoogleUserForItemPost,
+  validateUserForItemPost,
   validateSellerEmailForPost,
 } from "../../lib/sellerIdentity";
 import {
@@ -95,12 +95,12 @@ function AddPageInner() {
 
     let postEmail = "";
     if (mode === "item") {
-      const googleCheck = validateGoogleUserForItemPost(authUser);
-      if (!googleCheck.ok) {
-        alert(googleCheck.message);
+      const userCheck = validateUserForItemPost(authUser);
+      if (!userCheck.ok) {
+        alert(userCheck.message);
         return;
       }
-      postEmail = googleCheck.email;
+      postEmail = userCheck.email;
     } else {
       const emailCheck = validateSellerEmailForPost(authUser);
       if (!emailCheck.ok) {

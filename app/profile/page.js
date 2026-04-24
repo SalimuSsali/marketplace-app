@@ -306,16 +306,6 @@ export default function ProfilePage() {
     }
   }
 
-  function selectEmailPath() {
-    setSignupPath(SELLER_SIGNUP_MODE.EMAIL);
-    setSellerSignupMode(SELLER_SIGNUP_MODE.EMAIL);
-  }
-
-  function selectAccountPath() {
-    setSignupPath(SELLER_SIGNUP_MODE.ACCOUNT);
-    setSellerSignupMode(SELLER_SIGNUP_MODE.ACCOUNT);
-  }
-
   return (
     <main className="app-shell">
       <h1 className="app-title">Profile</h1>
@@ -323,8 +313,8 @@ export default function ProfilePage() {
       <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <p className="text-sm font-semibold text-neutral-900">Guest &amp; account</p>
         <p className="mt-1 text-sm text-neutral-600">
-          Browse without signing in. To post, choose <strong>email &amp; password</strong> or{" "}
-          <strong>Google</strong> below, then sign in.
+          Browse without signing in. To post, sign in with your <strong>email &amp; password</strong>{" "}
+          or with <strong>Google</strong>.
         </p>
         {!auth ? (
           <div className="mt-2 rounded-lg border border-red-200 bg-red-50/90 px-3 py-2 text-xs text-red-950">
@@ -403,43 +393,6 @@ export default function ProfilePage() {
         ) : null}
 
         <div className="mt-4 flex flex-col gap-3">
-          <fieldset className="min-w-0 border-0 p-0">
-            <legend className="sr-only">Posting identity</legend>
-            <div className="flex flex-col gap-2">
-              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-neutral-50/80 p-3 text-sm">
-                <input
-                  type="radio"
-                  name="seller-signup"
-                  className="mt-0.5"
-                  checked={signupPath === SELLER_SIGNUP_MODE.EMAIL}
-                  onChange={selectEmailPath}
-                />
-                <span>
-                  <span className="font-semibold text-neutral-900">Post with email &amp; password</span>
-                  <span className="mt-0.5 block text-neutral-600">
-                    Create an account with your email and a password that meets the rules, or sign
-                    in if you already have one.
-                  </span>
-                </span>
-              </label>
-              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-neutral-50/80 p-3 text-sm">
-                <input
-                  type="radio"
-                  name="seller-signup"
-                  className="mt-0.5"
-                  checked={signupPath === SELLER_SIGNUP_MODE.ACCOUNT}
-                  onChange={selectAccountPath}
-                />
-                <span>
-                  <span className="font-semibold text-neutral-900">Post with a Google account</span>
-                  <span className="mt-0.5 block text-neutral-600">
-                    Sign in with Google. Your listings use that account email.
-                  </span>
-                </span>
-              </label>
-            </div>
-          </fieldset>
-
           {authUser ? (
             <div className="flex flex-col gap-2 rounded-lg border border-dashed border-gray-300 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-neutral-700">
@@ -457,8 +410,9 @@ export default function ProfilePage() {
             </div>
           ) : null}
 
-          {!authUser && signupPath === SELLER_SIGNUP_MODE.EMAIL ? (
+          {!authUser ? (
             <div className="flex flex-col gap-2 rounded-lg border border-dashed border-gray-300 bg-white p-3">
+              <p className="text-sm font-semibold text-neutral-900">Email &amp; password</p>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -613,8 +567,22 @@ export default function ProfilePage() {
             </div>
           ) : null}
 
-          {!authUser && signupPath === SELLER_SIGNUP_MODE.ACCOUNT ? (
+          {!authUser ? (
+            <div className="flex items-center gap-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                or
+              </span>
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+          ) : null}
+
+          {!authUser ? (
             <div className="flex flex-col gap-2 rounded-lg border border-dashed border-gray-300 bg-white p-3">
+              <p className="text-sm font-semibold text-neutral-900">Google account</p>
+              <p className="text-xs text-neutral-600">
+                Sign in with Google. Your listings use that account email.
+              </p>
               <button
                 type="button"
                 onClick={handleGoogleSignIn}
@@ -636,12 +604,6 @@ export default function ProfilePage() {
                 this site if you prefer the first button.
               </p>
             </div>
-          ) : null}
-
-          {!authUser && !signupPath ? (
-            <p className="text-xs text-neutral-500">
-              Select an option above to set up posting.
-            </p>
           ) : null}
         </div>
       </div>

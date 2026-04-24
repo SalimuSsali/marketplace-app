@@ -17,7 +17,8 @@
     "android:assets": "node scripts/ensure-pwa-icons.mjs && npx @capacitor/assets generate --android --assetPath assets && npx cap sync android",
     "android:open": "npx cap open android",
     "verify": "node scripts/ensure-pwa-icons.mjs && node scripts/gen-firebase-messaging-sw.mjs && npx tsc --noEmit",
-    "build:win": "node scripts/ensure-pwa-icons.mjs && node scripts/gen-firebase-messaging-sw.mjs && set NEXT_DIST_DIR=.next-win&& next build"
+    "build:win": "node scripts/ensure-pwa-icons.mjs && node scripts/gen-firebase-messaging-sw.mjs && set NEXT_DIST_DIR=.next-win&& next build",
+    "deploy:vercel": "node scripts/vercel-deploy-hint.cjs && npx vercel deploy --prod"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1026.0",

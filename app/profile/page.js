@@ -4,21 +4,21 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   createUserWithEmailAndPassword,
-  getRedirectResult,
-  GoogleAuthProvider,
+  EmailAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithCredential,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
   signOut,
+  updatePassword,
+  verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
 import { auth, db } from "../../lib/firebase";
 import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import {
-  getSellerSignupMode,
   isValidEmailFormat,
   setSellerSignupMode,
   SELLER_SIGNUP_MODE,
@@ -31,22 +31,35 @@ const AUTH_MISSING_ALERT =
 export default function ProfilePage() {
   const fbBoot = useFirebaseBootstrapVersion();
   const [authUser, setAuthUser] = useState(null);
-  const [signupPath, setSignupPath] = useState(null);
   const [emailDraft, setEmailDraft] = useState("");
   const [emailPassword, setEmailPassword] = useState("");
   const [emailPasswordConfirm, setEmailPasswordConfirm] = useState("");
   const [emailTab, setEmailTab] = useState("signup");
   const [authBusy, setAuthBusy] = useState(false);
   const [authFormError, setAuthFormError] = useState(null);
-  const [pageHost, setPageHost] = useState("");
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [showSignupPasswordConfirm, setShowSignupPasswordConfirm] =
     useState(false);
   const [showSigninPassword, setShowSigninPassword] = useState(false);
 
-  useEffect(() => {
-    setPageHost(window.location.hostname || "");
-  }, []);
+  const [verificationNotice, setVerificationNotice] = useState(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+
+  const [settingsTab, setSettingsTab] = useState(null);
+  const [settingsMessage, setSettingsMessage] = useState(null);
+  const [settingsError, setSettingsError] = useState(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwNewConfirm, setPwNewConfirm] = useState("");
+  const [showPwCurrent, setShowPwCurrent] = useState(false);
+  const [showPwNew, setShowPwNew] = useState(false);
+  const [showPwNewConfirm, setShowPwNewConfirm] = useState(false);
+
+  const [newEmailDraft, setNewEmailDraft] = useState("");
+  const [newEmailPw, setNewEmailPw] = useState("");
+  const [showNewEmailPw, setShowNewEmailPw] = useState(false);
 
   useEffect(() => {
     setShowSignupPassword(false);
@@ -62,105 +75,6 @@ export default function ProfilePage() {
     });
     return () => unsub();
   }, [fbBoot]);
-
-  useEffect(() => {
-    setSignupPath(getSellerSignupMode());
-  }, []);
-
-  /** Finish Google sign-in after signInWithRedirect (when pop-ups are blocked). */
-  useEffect(() => {
-    if (!auth) return;
-    let cancelled = false;
-    getRedirectResult(auth)
-      .then((result) => {
-        if (cancelled) return;
-        if (result?.user) {
-          console.log("Google user:", result.user);
-          setAuthBusy(true);
-          return ensureUserDoc(db, result.user).then((u) => {
-            console.log("Firestore user doc:", u);
-            if (cancelled) return;
-            if (!u.ok) {
-              setAuthFormError(
-                `Signed in, but could not initialize user profile.\n\n${u.error}`,
-              );
-              return;
-            }
-            setSellerSignupMode(SELLER_SIGNUP_MODE.ACCOUNT);
-            setSignupPath(SELLER_SIGNUP_MODE.ACCOUNT);
-            setAuthFormError(null);
-          }).finally(() => {
-            if (!cancelled) setAuthBusy(false);
-          });
-        }
-        return undefined;
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setAuthFormError(formatFirebaseAuthError(err));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fbBoot]);
-
-  async function handleGoogleSignIn() {
-    if (!auth) {
-      setAuthFormError(AUTH_MISSING_ALERT);
-      return;
-    }
-    setAuthFormError(null);
-    setAuthBusy(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      try {
-        const res = await signInWithPopup(auth, provider);
-        console.log("Google user:", res?.user);
-        const ensured = await ensureUserDoc(db, res?.user || null);
-        console.log("Firestore user doc:", ensured);
-        if (!ensured.ok) {
-          setAuthFormError(
-            `Signed in, but could not initialize user profile.\n\n${ensured.error}`,
-          );
-          return;
-        }
-      } catch (popupErr) {
-        if (popupErr?.code === "auth/popup-blocked") {
-          await signInWithRedirect(auth, provider);
-          return;
-        }
-        throw popupErr;
-      }
-      setSellerSignupMode(SELLER_SIGNUP_MODE.ACCOUNT);
-      setSignupPath(SELLER_SIGNUP_MODE.ACCOUNT);
-    } catch (err) {
-      if (err?.code === "auth/popup-closed-by-user") return;
-      const text = formatFirebaseAuthError(err);
-      setAuthFormError(text);
-      alert(text);
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function handleGoogleSignInFullPage() {
-    if (!auth) {
-      setAuthFormError(AUTH_MISSING_ALERT);
-      return;
-    }
-    setAuthFormError(null);
-    setAuthBusy(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithRedirect(auth, provider);
-    } catch (err) {
-      const text = formatFirebaseAuthError(err);
-      setAuthFormError(text);
-      alert(text);
-      setAuthBusy(false);
-    }
-  }
 
   async function handleSignOut() {
     if (!auth) return;
@@ -202,6 +116,19 @@ export default function ProfilePage() {
     setAuthBusy(true);
     try {
       const res = await createUserWithEmailAndPassword(auth, email, emailPassword);
+      try {
+        const origin =
+          typeof window !== "undefined" ? window.location.origin : "";
+        await sendEmailVerification(
+          res.user,
+          origin ? { url: `${origin}/profile`, handleCodeInApp: false } : undefined,
+        );
+        setVerificationNotice(
+          `We sent a verification link to ${email}. Open it to confirm your account.`,
+        );
+      } catch (verr) {
+        console.warn("[auth] sendEmailVerification failed", verr);
+      }
       const ensured = await ensureUserDoc(db, res?.user || null);
       if (!ensured.ok) {
         setAuthFormError(
@@ -210,7 +137,6 @@ export default function ProfilePage() {
         return;
       }
       setSellerSignupMode(SELLER_SIGNUP_MODE.EMAIL);
-      setSignupPath(SELLER_SIGNUP_MODE.EMAIL);
       setEmailPassword("");
       setEmailPasswordConfirm("");
     } catch (err) {
@@ -253,7 +179,6 @@ export default function ProfilePage() {
         return;
       }
       setSellerSignupMode(SELLER_SIGNUP_MODE.EMAIL);
-      setSignupPath(SELLER_SIGNUP_MODE.EMAIL);
       setEmailPassword("");
       setEmailPasswordConfirm("");
     } catch (err) {
@@ -306,6 +231,129 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleResendVerification() {
+    if (!auth?.currentUser) return;
+    setVerificationBusy(true);
+    setVerificationNotice(null);
+    try {
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      await sendEmailVerification(
+        auth.currentUser,
+        origin ? { url: `${origin}/profile`, handleCodeInApp: false } : undefined,
+      );
+      setVerificationNotice(
+        `Verification link sent to ${auth.currentUser.email}. Check your inbox (and spam).`,
+      );
+    } catch (err) {
+      setVerificationNotice(formatFirebaseAuthError(err));
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+
+  function resetSettingsFeedback() {
+    setSettingsMessage(null);
+    setSettingsError(null);
+  }
+
+  async function reauthenticateCurrentUser(currentPassword) {
+    if (!auth?.currentUser?.email) {
+      throw Object.assign(new Error("Not signed in."), {
+        code: "auth/no-current-user",
+      });
+    }
+    const cred = EmailAuthProvider.credential(
+      auth.currentUser.email,
+      currentPassword,
+    );
+    await reauthenticateWithCredential(auth.currentUser, cred);
+  }
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    resetSettingsFeedback();
+    if (!auth?.currentUser) {
+      setSettingsError(AUTH_MISSING_ALERT);
+      return;
+    }
+    if (!pwCurrent) {
+      setSettingsError("Enter your current password.");
+      return;
+    }
+    const rules = validatePasswordForSignup(pwNew);
+    if (!rules.ok) {
+      setSettingsError(rules.message);
+      return;
+    }
+    if (pwNew !== pwNewConfirm) {
+      setSettingsError("New passwords do not match.");
+      return;
+    }
+    if (pwNew === pwCurrent) {
+      setSettingsError("New password must differ from current password.");
+      return;
+    }
+    setSettingsBusy(true);
+    try {
+      await reauthenticateCurrentUser(pwCurrent);
+      await updatePassword(auth.currentUser, pwNew);
+      setPwCurrent("");
+      setPwNew("");
+      setPwNewConfirm("");
+      setSettingsMessage("Password updated. Use the new password next time you sign in.");
+    } catch (err) {
+      setSettingsError(formatFirebaseAuthError(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function handleChangeEmail(e) {
+    e.preventDefault();
+    resetSettingsFeedback();
+    if (!auth?.currentUser) {
+      setSettingsError(AUTH_MISSING_ALERT);
+      return;
+    }
+    const nextEmail = newEmailDraft.trim();
+    if (!isValidEmailFormat(nextEmail)) {
+      setSettingsError("Enter a valid new email address.");
+      return;
+    }
+    if (
+      auth.currentUser.email &&
+      nextEmail.toLowerCase() === auth.currentUser.email.toLowerCase()
+    ) {
+      setSettingsError("That is already your current email.");
+      return;
+    }
+    if (!newEmailPw) {
+      setSettingsError("Enter your current password to confirm.");
+      return;
+    }
+    setSettingsBusy(true);
+    try {
+      await reauthenticateCurrentUser(newEmailPw);
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      await verifyBeforeUpdateEmail(
+        auth.currentUser,
+        nextEmail,
+        origin ? { url: `${origin}/profile`, handleCodeInApp: false } : undefined,
+      );
+      setNewEmailDraft("");
+      setNewEmailPw("");
+      setSettingsMessage(
+        `Verification link sent to ${nextEmail}. Open it to finish switching your email. Your current email stays active until you confirm.`,
+      );
+    } catch (err) {
+      setSettingsError(formatFirebaseAuthError(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <h1 className="app-title">Profile</h1>
@@ -313,8 +361,8 @@ export default function ProfilePage() {
       <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <p className="text-sm font-semibold text-neutral-900">Guest &amp; account</p>
         <p className="mt-1 text-sm text-neutral-600">
-          Browse without signing in. To post, sign in with your <strong>email &amp; password</strong>{" "}
-          or with <strong>Google</strong>.
+          Browse without signing in. To post, create an account (or sign in) with your{" "}
+          <strong>email &amp; password</strong>.
         </p>
         {!auth ? (
           <div className="mt-2 rounded-lg border border-red-200 bg-red-50/90 px-3 py-2 text-xs text-red-950">
@@ -353,25 +401,6 @@ export default function ProfilePage() {
               </li>
             </ol>
           </div>
-        ) : pageHost ? (
-          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
-            <span className="font-semibold">Google sign-in:</span> Firebase → Authentication →
-            Settings → <span className="font-medium">Authorized domains</span> → Add{" "}
-            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-neutral-900">
-              {pageHost}
-            </code>
-            . That fixes <code className="font-mono text-[11px]">getProjectConfig</code> 400 and
-            “Unable to verify that the app domain is authorized.”
-            {process.env.NODE_ENV === "development" &&
-            (pageHost === "localhost" || pageHost === "127.0.0.1") ? (
-              <span className="text-neutral-700">
-                {" "}
-                <code className="font-mono text-[11px]">127.0.0.1</code> and{" "}
-                <code className="font-mono text-[11px]">localhost</code> are separate—add the one
-                that matches your address bar.
-              </span>
-            ) : null}
-          </p>
         ) : null}
         {authUser ? (
           <p className="mt-2 text-xs text-emerald-700">
@@ -394,19 +423,215 @@ export default function ProfilePage() {
 
         <div className="mt-4 flex flex-col gap-3">
           {authUser ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-dashed border-gray-300 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-neutral-700">
-                Signed in as{" "}
-                <span className="font-semibold text-neutral-900">{authUser.email}</span>
-              </p>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                disabled={authBusy}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Sign out
-              </button>
+            <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-neutral-700">
+                  Signed in as{" "}
+                  <span className="font-semibold text-neutral-900">{authUser.email}</span>
+                  {authUser.emailVerified ? (
+                    <span className="ml-2 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                      Verified
+                    </span>
+                  ) : (
+                    <span className="ml-2 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                      Not verified
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={authBusy}
+                  className="self-start rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-gray-50 disabled:opacity-60 sm:self-auto"
+                >
+                  Sign out
+                </button>
+              </div>
+
+              {!authUser.emailVerified ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-xs text-amber-950">
+                  <p className="font-semibold">Verify your email</p>
+                  <p className="mt-1">
+                    We sent a verification link to{" "}
+                    <span className="font-mono">{authUser.email}</span>. Open it to confirm
+                    your account. Didn&apos;t get it?
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={verificationBusy}
+                    className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {verificationBusy ? "Sending…" : "Resend verification email"}
+                  </button>
+                  {verificationNotice ? (
+                    <p className="mt-2 rounded bg-white px-2 py-1 text-[11px] text-amber-900">
+                      {verificationNotice}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="rounded-lg border border-dashed border-gray-300 bg-neutral-50/80 p-3">
+                <p className="text-sm font-semibold text-neutral-900">Account settings</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetSettingsFeedback();
+                      setSettingsTab(settingsTab === "password" ? null : "password");
+                    }}
+                    className={`flex-1 rounded-lg py-2 text-xs font-semibold ${
+                      settingsTab === "password"
+                        ? "bg-blue-600 text-white"
+                        : "border border-gray-200 bg-white text-neutral-800"
+                    }`}
+                  >
+                    Change password
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetSettingsFeedback();
+                      setSettingsTab(settingsTab === "email" ? null : "email");
+                    }}
+                    className={`flex-1 rounded-lg py-2 text-xs font-semibold ${
+                      settingsTab === "email"
+                        ? "bg-blue-600 text-white"
+                        : "border border-gray-200 bg-white text-neutral-800"
+                    }`}
+                  >
+                    Change email
+                  </button>
+                </div>
+
+                {settingsMessage ? (
+                  <p className="mt-2 whitespace-pre-wrap rounded-lg border border-emerald-200 bg-emerald-50/90 p-2 text-xs text-emerald-900">
+                    {settingsMessage}
+                  </p>
+                ) : null}
+                {settingsError ? (
+                  <p className="mt-2 whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50/90 p-2 text-xs text-red-900">
+                    {settingsError}
+                  </p>
+                ) : null}
+
+                {settingsTab === "password" ? (
+                  <form onSubmit={handleChangePassword} className="mt-3 flex flex-col gap-2">
+                    <label className="app-label mb-0">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span>Current password</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                          onClick={() => setShowPwCurrent((v) => !v)}
+                        >
+                          {showPwCurrent ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                      <input
+                        type={showPwCurrent ? "text" : "password"}
+                        value={pwCurrent}
+                        onChange={(e) => setPwCurrent(e.target.value)}
+                        autoComplete="current-password"
+                        className="app-input"
+                      />
+                    </label>
+                    <label className="app-label mb-0">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span>New password</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                          onClick={() => setShowPwNew((v) => !v)}
+                        >
+                          {showPwNew ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                      <input
+                        type={showPwNew ? "text" : "password"}
+                        value={pwNew}
+                        onChange={(e) => setPwNew(e.target.value)}
+                        autoComplete="new-password"
+                        className="app-input"
+                      />
+                    </label>
+                    <label className="app-label mb-0">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span>Confirm new password</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                          onClick={() => setShowPwNewConfirm((v) => !v)}
+                        >
+                          {showPwNewConfirm ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                      <input
+                        type={showPwNewConfirm ? "text" : "password"}
+                        value={pwNewConfirm}
+                        onChange={(e) => setPwNewConfirm(e.target.value)}
+                        autoComplete="new-password"
+                        className="app-input"
+                      />
+                    </label>
+                    <p className="text-xs text-neutral-500">{PASSWORD_RULES_HINT}</p>
+                    <button
+                      type="submit"
+                      disabled={settingsBusy}
+                      className="app-btn-primary disabled:opacity-60"
+                    >
+                      {settingsBusy ? "Updating…" : "Update password"}
+                    </button>
+                  </form>
+                ) : null}
+
+                {settingsTab === "email" ? (
+                  <form onSubmit={handleChangeEmail} className="mt-3 flex flex-col gap-2">
+                    <label className="app-label mb-0">
+                      New email
+                      <input
+                        type="email"
+                        value={newEmailDraft}
+                        onChange={(e) => setNewEmailDraft(e.target.value)}
+                        autoComplete="email"
+                        placeholder="new@example.com"
+                        className="app-input"
+                      />
+                    </label>
+                    <label className="app-label mb-0">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span>Current password</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                          onClick={() => setShowNewEmailPw((v) => !v)}
+                        >
+                          {showNewEmailPw ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                      <input
+                        type={showNewEmailPw ? "text" : "password"}
+                        value={newEmailPw}
+                        onChange={(e) => setNewEmailPw(e.target.value)}
+                        autoComplete="current-password"
+                        className="app-input"
+                      />
+                    </label>
+                    <p className="text-xs text-neutral-500">
+                      We&apos;ll send a verification link to the new address. Your current
+                      email stays active until you open that link.
+                    </p>
+                    <button
+                      type="submit"
+                      disabled={settingsBusy}
+                      className="app-btn-primary disabled:opacity-60"
+                    >
+                      {settingsBusy ? "Sending…" : "Send verification link"}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -567,44 +792,6 @@ export default function ProfilePage() {
             </div>
           ) : null}
 
-          {!authUser ? (
-            <div className="flex items-center gap-3" aria-hidden="true">
-              <span className="h-px flex-1 bg-gray-200" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                or
-              </span>
-              <span className="h-px flex-1 bg-gray-200" />
-            </div>
-          ) : null}
-
-          {!authUser ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-dashed border-gray-300 bg-white p-3">
-              <p className="text-sm font-semibold text-neutral-900">Google account</p>
-              <p className="text-xs text-neutral-600">
-                Sign in with Google. Your listings use that account email.
-              </p>
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={authBusy}
-                className="app-mode-btn disabled:opacity-60"
-              >
-                {authBusy ? "Please wait…" : "Continue with Google"}
-              </button>
-              <button
-                type="button"
-                onClick={handleGoogleSignInFullPage}
-                disabled={authBusy}
-                className="w-full rounded-lg border border-gray-300 bg-white py-2.5 text-sm font-semibold text-neutral-800 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Sign in with Google (full page)
-              </button>
-              <p className="text-xs text-neutral-500">
-                Use full page if you see “invalid” errors or blocked pop-ups. Allow pop-ups for
-                this site if you prefer the first button.
-              </p>
-            </div>
-          ) : null}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import {
 import { auth } from "../../lib/firebase";
 import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
+import { getAuthActionCodeSettings } from "../../lib/authActionSettings";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import { isValidEmailFormat } from "../../lib/sellerIdentity";
 
@@ -90,11 +91,7 @@ export default function AccountPage() {
     setVerifyBusy(true);
     setVerifyNotice(null);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      await sendEmailVerification(
-        auth.currentUser,
-        origin ? { url: `${origin}/account`, handleCodeInApp: false } : undefined,
-      );
+      await sendEmailVerification(auth.currentUser, getAuthActionCodeSettings());
       setVerifyNotice(
         `Verification link sent to ${auth.currentUser.email}. Check your inbox (and spam).`,
       );
@@ -164,11 +161,10 @@ export default function AccountPage() {
     setBusy(true);
     try {
       await reauth(newEmailPw);
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
       await verifyBeforeUpdateEmail(
         auth.currentUser,
         nextEmail,
-        origin ? { url: `${origin}/account`, handleCodeInApp: false } : undefined,
+        getAuthActionCodeSettings(),
       );
       setNewEmail("");
       setNewEmailPw("");

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../../lib/firebase";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
+import { getAuthActionCodeSettings } from "../../lib/authActionSettings";
 import { isValidEmailFormat } from "../../lib/sellerIdentity";
 
 export default function ForgotPasswordPage() {
@@ -29,12 +30,7 @@ export default function ForgotPasswordPage() {
 
     setBusy(true);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      await sendPasswordResetEmail(
-        auth,
-        cleanEmail,
-        origin ? { url: `${origin}/login`, handleCodeInApp: false } : undefined,
-      );
+      await sendPasswordResetEmail(auth, cleanEmail, getAuthActionCodeSettings());
       setSent(true);
     } catch (err) {
       setError(formatFirebaseAuthError(err));

@@ -12,6 +12,7 @@ import { auth, db } from "../../lib/firebase";
 import { ensureUserDoc } from "../../lib/ensureUserDoc";
 import { useFirebaseBootstrapVersion } from "../../hooks/useFirebaseBootstrapVersion";
 import { formatFirebaseAuthError } from "../../lib/firebaseAuthErrors";
+import { getAuthActionCodeSettings } from "../../lib/authActionSettings";
 import { PASSWORD_RULES_HINT, validatePasswordForSignup } from "../../lib/passwordRules";
 import {
   isValidEmailFormat,
@@ -68,11 +69,7 @@ export default function SignupPage() {
     try {
       const res = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       try {
-        const origin = typeof window !== "undefined" ? window.location.origin : "";
-        await sendEmailVerification(
-          res.user,
-          origin ? { url: `${origin}/account`, handleCodeInApp: false } : undefined,
-        );
+        await sendEmailVerification(res.user, getAuthActionCodeSettings());
       } catch (verr) {
         console.warn("[auth] sendEmailVerification failed", verr);
       }
